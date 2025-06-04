@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google One Token Processor - Charles Tools</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Custom Styles -->
+    <style>
+        :root {
+            --primary-color: #4285f4;
+            --secondary-color: #34a853;
+            --danger-color: #ea4335;
+            --warning-color: #fbbc04;
+            --dark-color: #202124;
+            --light-color: #f8f9fa;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            margin: 0.75rem auto;
+            padding: 1rem;
+            max-width: 1600px;
+        }        .header {
+            text-align: center;
+            margin-bottom: 0.75rem;
+            color: var(--dark-color);
+        }
+
+        .header h1 {
+            font-weight: 700;
+            margin-bottom: 0.1rem;
+            font-size: 1.6rem;
+        }
+
+        .header p {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }        .input-section {
+            background: white;
+            border-radius: 12px;
+            padding: 0.75rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+            margin-bottom: 0.75rem;
+        }.form-control {
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.15rem rgba(66, 133, 244, 0.25);
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, var(--primary-color), #5a6cf0);
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1.5rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(66, 133, 244, 0.3);
+        }        .result-section {
+            background: white;
+            border-radius: 12px;
+            padding: 0.75rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+            margin-bottom: 0.75rem;
+        }
+
+        .code-display {
+            background: #f8f9fa;
+            border: 1px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 0.4rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            word-break: break-all;
+            margin: 0.3rem 0;
+        }
+
+        .package-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.4rem;
+            margin: 0.5rem 0;
+        }
+
+        .package-category {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 0.4rem;
+            transition: all 0.3s ease;
+        }
+
+        .package-category:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-1px);
+        }
+
+        .package-category h6 {
+            color: var(--primary-color);
+            font-weight: 600;
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+            text-align: center;
+        }        .form-check {
+            margin-bottom: 0.15rem;
+        }
+
+        .form-check-input:checked {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .form-check-label {
+            font-size: 0.75rem;
+        }
+
+        .replacement-options {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin: 0.4rem 0;
+        }        .replacement-option {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 15px;
+            padding: 0.15rem 0.6rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.75rem;
+            user-select: none;
+        }
+
+        .replacement-option:hover {
+            border-color: var(--primary-color);
+            background: rgba(66, 133, 244, 0.1);
+        }
+
+        .replacement-option.selected {
+            border-color: var(--primary-color);
+            background: rgba(66, 133, 244, 0.15);
+            color: var(--primary-color);
+            font-weight: 600;
+        }        .replacement-option input[type="radio"] {
+            display: none;
+        }
+
+        .controls-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border: 1px solid #e9ecef;
+        }.output-section {
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            border-radius: 12px;
+            padding: 0.75rem;
+            border: 1px solid #dee2e6;
+        }
+
+        .output-text {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 0.4rem;
+            min-height: 50px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            resize: vertical;
+            word-break: break-all;
+        }
+
+        .open-link-btn {
+            background: linear-gradient(45deg, var(--secondary-color), #4caf50);
+            color: white;
+            text-decoration: none;
+            padding: 0.4rem 1.2rem;
+            border-radius: 15px;
+            display: inline-block;
+            margin-top: 0.5rem;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }.open-link-btn:hover {
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(52, 168, 83, 0.3);
+        }        .alert-custom {
+            border-radius: 8px;
+            border: none;
+            padding: 0.4rem 0.6rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .hidden {
+            display: none;
+        }        .replacement-options.flex-column .replacement-option {
+            width: 100%;
+            text-align: center;
+            justify-content: center;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .replacement-options.flex-column .replacement-option input {
+            margin: 0;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin: 0.5rem;
+                padding: 0.75rem;
+            }
+            
+            .package-grid {
+                grid-template-columns: 1fr;
+                gap: 0.4rem;
+            }
+            
+            .replacement-options {
+                flex-direction: row !important;
+                justify-content: center;
+                gap: 0.3rem;
+            }
+
+            .replacement-option {
+                margin-bottom: 0.3rem !important;
+            }
+
+            .header h1 {
+                font-size: 1.4rem;
+            }
+
+            .header p {
+                font-size: 0.85rem;
+            }
+
+            .col-lg-8, .col-lg-4 {
+                margin-bottom: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="main-container">
+            <!-- Header -->
+            <div class="header">
+                <h1>🔧 Google One Token Processor</h1>
+                <p>Công cụ xử lý mã token Google One Trial - By Charles Tools</p>
+            </div>            <!-- Input Section -->
+            <div class="input-section">
+                <div class="row align-items-end">
+                    <div class="col-md-8">
+                        <label for="tokenInput" class="form-label fw-bold">📝 Nhập đoạn mã token:</label>
+                        <input type="text" 
+                               class="form-control" 
+                               id="tokenInput" 
+                               placeholder="Nhập đoạn mã token Google One tại đây..."
+                               oninput="processToken()">
+                    </div>
+                    <div class="col-md-4 mt-2 mt-md-0">
+                        <button type="button" class="btn btn-primary w-100" onclick="processReplacement()">
+                            ⚡ Xử lý Token
+                        </button>
+                    </div>
+                </div>
+            </div>            <!-- Result Section -->
+            <div id="resultSection" class="result-section hidden">
+                <!-- Code Display Row -->
+                <div class="row mb-2">
+                    <div class="col-md-6">
+                        <div class="code-display">
+                            <strong>Code gói tìm được:</strong> <span id="packageCode" class="text-primary"></span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="code-display">
+                            <strong>Code thay thế:</strong> <span id="replaceCode" class="text-success"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Combined Package Selection and Replacement Options -->
+                <div class="row">
+                    <!-- Package Selection Column -->
+                    <div class="col-lg-8">
+                        <h5 class="mb-2">📦 Chọn code gói cần thay thế</h5>
+                        <div class="alert alert-custom alert-info mb-2">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>Chú ý:</strong> <em>annual</em> là gói NĂM, không có <em>annual</em> là gói THÁNG
+                        </div>
+                        <div class="package-grid" id="packageGrid">
+                            <!-- Package categories will be populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- Replacement Options Column -->
+                    <div class="col-lg-4">
+                        <h5 class="mb-2">🔧 Chọn cách thay thế</h5>
+                        <div class="replacement-options align-items-stretch" id="replacementOptions">
+                            <div class="replacement-option mb-1">
+                                <input type="radio" name="replaceRadio" value="C0%" id="C0Radio" checked class="form-check-input">
+                                <label class="form-check-label" for="C0Radio">C0%</label>
+                            </div>
+                            <div class="replacement-option mb-1">
+                                <input type="radio" name="replaceRadio" value="C1%" id="C1Radio" class="form-check-input">
+                                <label class="form-check-label" for="C1Radio">C1%</label>
+                            </div>
+                            <div class="replacement-option mb-1">
+                                <input type="radio" name="replaceRadio" value="C5%" id="C5Radio" class="form-check-input">
+                                <label class="form-check-label" for="C5Radio">C5%</label>
+                            </div>
+                            <div class="replacement-option mb-1">
+                                <input type="radio" name="replaceRadio" value="C6%" id="C6Radio" class="form-check-input">
+                                <label class="form-check-label" for="C6Radio">C6%</label>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-custom alert-warning mt-2">
+                            <i class="fas fa-lightbulb"></i> 
+                            Không cần F5 lại trang, khi bấm <strong>Xử lý</strong>, đoạn mã của bạn sẽ được thay thế code mới!
+                        </div>
+                        
+                        <div class="text-center mt-2">
+                            <button type="button" class="btn btn-primary w-100" onclick="processReplacement()">
+                                ⚡ Xử lý Token
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Output Section -->
+            <div id="outputSection" class="output-section hidden">
+                <h5 class="mb-2">✅ Kết quả xử lý</h5>
+                <div class="form-group">
+                    <label for="outputText" class="form-label fw-bold">Token đã xử lý:</label>
+                    <textarea id="outputText" 
+                              class="output-text form-control" 
+                              readonly
+                              placeholder="Kết quả sẽ hiển thị tại đây..."></textarea>
+                </div>
+                <div class="text-center">
+                    <a id="openLink" href="#" target="_blank" class="open-link-btn">
+                        🔗 Mở liên kết
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary ms-2" onclick="copyToClipboard()">
+                        📋 Copy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script>
+        // Package sources configuration
+        const packageSources = [
+            '100gb', '100gb.annual', '200gb', '200gb.annual', '2tb', '2tb.annual', 
+            '5tb', '5tb.annual', '10tb', '20tb', '30tb',
+            '100gb.1month_eft', '100gb.2months_eft', '100gb.3months_eft', '100gb.9months_eft', '100gb.1year_eft',
+            '100gb.annual.1month_eft', '100gb.annual.3months_eft', '100gb.annual.1year_eft',
+            '200gb.1month_eft', '200gb.3months_eft', '200gb.1year_eft',
+            '200gb.annual.1month_eft', '200gb.annual.3months_eft',
+            '2tb.1month_eft', '2tb.3months_eft', '2tb.6months_eft',
+            '2tb.ai', '2tb.ai.1month_eft', '2tb.ai.2months_eft'
+        ];
+
+        // Package categories
+        const packageCategories = {
+            monthly: {
+                title: 'Code gói THÁNG',
+                packages: packageSources.filter(p => !p.includes('annual') && !p.includes('eft') && !p.includes('ai'))
+            },
+            yearly: {
+                title: 'Code gói NĂM',
+                packages: packageSources.filter(p => p.includes('annual') && !p.includes('eft'))
+            },
+            trial100: {
+                title: 'Code trial 100GB',
+                packages: packageSources.filter(p => p.startsWith('100gb') && p.includes('eft'))
+            },
+            trial200: {
+                title: 'Code trial 200GB',
+                packages: packageSources.filter(p => p.startsWith('200gb') && p.includes('eft'))
+            },
+            trial2tb: {
+                title: 'Code trial 2TB',
+                packages: packageSources.filter(p => p.startsWith('2tb') && (p.includes('eft') || p.includes('ai')))
+            }
+        };
+
+        // Regular expression for token validation
+        const tokenRegex = /^https:\/\/tokenized\.play\.google\.com\/eacquire\/.*?(.*)%3Ag1\.(.*?)%22%2C21%5D/;
+
+        let currentToken = '';
+        let currentPackageCode = '';
+
+        // Initialize package grid
+        function initializePackageGrid() {
+            const grid = document.getElementById('packageGrid');
+            
+            Object.entries(packageCategories).forEach(([key, category]) => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'package-category';
+                
+                const title = document.createElement('h6');
+                title.textContent = category.title;
+                categoryDiv.appendChild(title);
+
+                // Add "Không thay đổi" option for the first category
+                if (key === 'monthly') {
+                    const noChangeDiv = document.createElement('div');
+                    noChangeDiv.className = 'form-check';
+                    noChangeDiv.innerHTML = `
+                        <input class="form-check-input" type="radio" name="packageRadio" value="Không thay đổi" id="noChange" checked>
+                        <label class="form-check-label" for="noChange">Không thay đổi</label>
+                    `;
+                    categoryDiv.appendChild(noChangeDiv);
+                }
+
+                category.packages.forEach(pkg => {
+                    const div = document.createElement('div');
+                    div.className = 'form-check';
+                    const id = pkg.replace(/[.\s]/g, '_');
+                    div.innerHTML = `
+                        <input class="form-check-input" type="radio" name="packageRadio" value="${pkg}" id="${id}">
+                        <label class="form-check-label" for="${id}">${pkg}</label>
+                    `;
+                    categoryDiv.appendChild(div);
+                });
+
+                grid.appendChild(categoryDiv);
+            });
+        }
+
+        // Process token input
+        function processToken() {
+            const input = document.getElementById('tokenInput').value.trim();
+            currentToken = input;
+
+            if (tokenRegex.test(input)) {
+                const matches = input.match(tokenRegex);
+                currentPackageCode = matches[2];
+
+                // Extract C codes
+                const cCodes = [];
+                const cRegex = /C(.)%/g;
+                let match;
+                while ((match = cRegex.exec(input)) !== null) {
+                    cCodes.push(match[1]);
+                }
+
+                // Update UI
+                document.getElementById('packageCode').textContent = currentPackageCode;
+                document.getElementById('replaceCode').textContent = `C${cCodes[0] || '0'}%`;
+                document.getElementById('resultSection').classList.remove('hidden');
+            } else {
+                document.getElementById('resultSection').classList.add('hidden');
+                document.getElementById('outputSection').classList.add('hidden');
+                if (input) {
+                    showAlert('Đoạn mã không hợp lệ. Vui lòng kiểm tra lại!', 'danger');
+                }
+            }
+        }
+
+        // Process replacement
+        function processReplacement() {
+            if (!tokenRegex.test(currentToken)) {
+                showAlert('Đoạn mã không hợp lệ!', 'danger');
+                return;
+            }
+
+            const selectedReplace = document.querySelector('input[name="replaceRadio"]:checked');
+            if (!selectedReplace) {
+                showAlert('Vui lòng chọn một cách thay thế.', 'warning');
+                return;
+            }
+
+            const selectedPackage = document.querySelector('input[name="packageRadio"]:checked');
+            if (!selectedPackage) {
+                showAlert('Vui lòng chọn một code gói để thay thế.', 'warning');
+                return;
+            }
+
+            const replaceValue = selectedReplace.value;
+            const packageValue = selectedPackage.value;
+
+            // Replace C codes
+            let processedToken = currentToken.replace(/C[56]%/g, replaceValue);
+
+            // Replace package code if not "Không thay đổi"
+            if (packageValue !== 'Không thay đổi') {
+                processedToken = processedToken.replace(currentPackageCode, packageValue);
+            }
+
+            // Update output
+            document.getElementById('outputText').value = processedToken;
+            document.getElementById('openLink').href = processedToken;
+            document.getElementById('outputSection').classList.remove('hidden');
+
+            showAlert('Xử lý thành công! Token đã được cập nhật.', 'success');
+        }
+
+        // Copy to clipboard
+        function copyToClipboard() {
+            const outputText = document.getElementById('outputText');
+            outputText.select();
+            document.execCommand('copy');
+            showAlert('Đã copy vào clipboard!', 'info');
+        }
+
+        // Show alert
+        function showAlert(message, type) {
+            const existingAlert = document.querySelector('.alert-temporary');
+            if (existingAlert) {
+                existingAlert.remove();
+            }
+
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type} alert-temporary`;
+            alert.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 400px;';
+            alert.innerHTML = `
+                <strong>${type === 'success' ? '✅' : type === 'danger' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'}</strong> ${message}
+                <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+            `;
+            document.body.appendChild(alert);
+
+            setTimeout(() => {
+                if (alert.parentElement) {
+                    alert.remove();
+                }
+            }, 3000);
+        }        // Initialize replacement options click handlers
+        function initializeReplacementOptions() {
+            const replacementOptions = document.querySelectorAll('.replacement-option');
+            
+            replacementOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    // Remove selected class from all options
+                    replacementOptions.forEach(opt => opt.classList.remove('selected'));
+                    
+                    // Add selected class to clicked option
+                    this.classList.add('selected');
+                    
+                    // Check the radio button inside this option
+                    const radio = this.querySelector('input[type="radio"]');
+                    if (radio) {
+                        radio.checked = true;
+                    }
+                });
+            });
+            
+            // Set initial selected state
+            const checkedRadio = document.querySelector('input[name="replaceRadio"]:checked');
+            if (checkedRadio) {
+                checkedRadio.closest('.replacement-option').classList.add('selected');
+            }
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePackageGrid();
+            initializeReplacementOptions();
+        });
+    </script>
+</body>
+</html>
