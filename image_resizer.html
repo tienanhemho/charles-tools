@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Công cụ giảm kích cỡ hình ảnh</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            padding: 40px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 30px;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+            transform: scale(1.02);
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.4em;
+            color: #667eea;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .upload-subtext {
+            color: #888;
+            font-size: 1em;
+            margin-bottom: 20px;
+        }
+
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .control-group {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e0e6ff;
+        }
+
+        .control-group h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            gap: 15px;
+        }
+
+        .control-row:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            min-width: 120px;
+        }
+
+        input[type="number"], input[type="range"] {
+            flex: 1;
+            padding: 8px 12px;
+            border: 2px solid #e0e6ff;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+
+        input[type="number"]:focus, input[type="range"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        input[type="range"] {
+            padding: 0;
+            height: 6px;
+            background: #e0e6ff;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .value-display {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.9em;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .result-panel {
+            background: #f8f9ff;
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid #e0e6ff;
+        }
+
+        .result-panel h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            text-align: center;
+        }
+
+        .image-container {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        .image-container img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .image-info {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .info-value {
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .download-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .processing {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .results {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖼️ Công cụ giảm kích cỡ hình ảnh</h1>
+            <p>Tự động giảm kích thước file xuống dưới 300KB và resize ảnh nếu cần</p>
+        </div>
+
+        <div class="main-content">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📷</div>
+                <div class="upload-text">Kéo thả ảnh vào đây</div>
+                <div class="upload-subtext">Hoặc click để chọn file • Hỗ trợ JPG, PNG, WEBP • Paste (Ctrl+V) từ clipboard</div>
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                    Chọn ảnh từ máy tính
+                </button>
+                <button class="upload-btn" onclick="pasteFromClipboard()">
+                    Dán từ clipboard (Ctrl+V)
+                </button>
+                <input type="file" id="fileInput" accept="image/*" multiple>
+            </div>
+
+            <div class="controls" id="controls" style="display: none;">
+                <div class="control-group">
+                    <h3>⚙️ Cài đặt kích thước</h3>
+                    <div class="control-row">
+                        <label>Chiều rộng tối đa:</label>
+                        <input type="number" id="maxWidth" value="1000" min="100" max="4000">
+                        <span class="value-display">px</span>
+                    </div>
+                    <div class="control-row">
+                        <label>Chiều cao tối đa:</label>
+                        <input type="number" id="maxHeight" value="1000" min="100" max="4000">
+                        <span class="value-display">px</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>📦 Cài đặt nén</h3>
+                    <div class="control-row">
+                        <label>Kích thước file tối đa:</label>
+                        <input type="number" id="maxFileSize" value="300" min="50" max="2000">
+                        <span class="value-display">KB</span>
+                    </div>
+                    <div class="control-row">
+                        <label>Chất lượng nén:</label>
+                        <input type="range" id="quality" min="0.1" max="1" step="0.05" value="0.8">
+                        <span class="value-display" id="qualityValue">80%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="processing hidden" id="processing">
+                <div class="spinner"></div>
+                <div>Đang xử lý ảnh...</div>
+            </div>
+
+            <div class="results hidden" id="results">
+                <div class="result-panel">
+                    <h3>📸 Ảnh gốc</h3>
+                    <div class="image-container">
+                        <img id="originalImage" alt="Ảnh gốc">
+                    </div>
+                    <div class="image-info" id="originalInfo">
+                        <!-- Thông tin ảnh gốc sẽ được điền vào đây -->
+                    </div>
+                </div>
+
+                <div class="result-panel">
+                    <h3>✨ Ảnh đã tối ưu</h3>
+                    <div class="image-container">
+                        <img id="compressedImage" alt="Ảnh đã nén">
+                    </div>
+                    <div class="image-info" id="compressedInfo">
+                        <!-- Thông tin ảnh đã nén sẽ được điền vào đây -->
+                    </div>
+                    <button class="download-btn" id="downloadBtn" onclick="downloadImage()">
+                        💾 Tải xuống ảnh đã tối ưu
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let originalFile = null;
+        let compressedBlob = null;
+        let fileName = '';
+
+        // Khởi tạo event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            const qualitySlider = document.getElementById('quality');
+            const qualityValue = document.getElementById('qualityValue');
+
+            // Upload area events
+            uploadArea.addEventListener('dragover', handleDragOver);
+            uploadArea.addEventListener('dragleave', handleDragLeave);
+            uploadArea.addEventListener('drop', handleDrop);
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            // File input change
+            fileInput.addEventListener('change', handleFileSelect);
+
+            // Quality slider
+            qualitySlider.addEventListener('input', function() {
+                qualityValue.textContent = Math.round(this.value * 100) + '%';
+            });
+
+            // Paste event
+            document.addEventListener('paste', handlePaste);
+
+            // Settings change events
+            document.getElementById('maxWidth').addEventListener('change', reprocessImage);
+            document.getElementById('maxHeight').addEventListener('change', reprocessImage);
+            document.getElementById('maxFileSize').addEventListener('change', reprocessImage);
+            document.getElementById('quality').addEventListener('change', reprocessImage);
+        });
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files).filter(file => 
+                file.type.startsWith('image/')
+            );
+            
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function handlePaste(e) {
+            const items = e.clipboardData.items;
+            for (let item of items) {
+                if (item.type.startsWith('image/')) {
+                    const file = item.getAsFile();
+                    processFile(file);
+                    break;
+                }
+            }
+        }
+
+        function pasteFromClipboard() {
+            // Thông báo cho người dùng
+            alert('Vui lòng sử dụng Ctrl+V để dán ảnh từ clipboard');
+        }
+
+        function processFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Vui lòng chọn file hình ảnh!');
+                return;
+            }
+
+            originalFile = file;
+            fileName = file.name;
+            
+            showProcessing();
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    displayOriginalImage(img, file);
+                    compressImage(img, file);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showProcessing() {
+            document.getElementById('controls').style.display = 'grid';
+            document.getElementById('processing').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+        }
+
+        function hideProcessing() {
+            document.getElementById('processing').classList.add('hidden');
+            document.getElementById('results').classList.remove('hidden');
+        }
+
+        function displayOriginalImage(img, file) {
+            const originalImage = document.getElementById('originalImage');
+            originalImage.src = img.src;
+            
+            const info = document.getElementById('originalInfo');
+            info.innerHTML = `
+                <div class="info-row">
+                    <span class="info-label">Kích thước:</span>
+                    <span class="info-value">${img.width} × ${img.height} px</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Dung lượng:</span>
+                    <span class="info-value">${formatFileSize(file.size)}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Định dạng:</span>
+                    <span class="info-value">${file.type}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Tên file:</span>
+                    <span class="info-value">${file.name}</span>
+                </div>
+            `;
+        }
+
+        function compressImage(img, file) {
+            const maxWidth = parseInt(document.getElementById('maxWidth').value);
+            const maxHeight = parseInt(document.getElementById('maxHeight').value);
+            const maxFileSize = parseInt(document.getElementById('maxFileSize').value) * 1024; // Convert to bytes
+            const quality = parseFloat(document.getElementById('quality').value);
+
+            // Calculate new dimensions
+            let { width, height } = calculateNewDimensions(img.width, img.height, maxWidth, maxHeight);
+
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = width;
+            canvas.height = height;
+
+            // Draw image on canvas
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Try different quality levels to achieve target file size
+            let currentQuality = quality;
+            let attempts = 0;
+            const maxAttempts = 10;
+
+            function tryCompress() {
+                canvas.toBlob(function(blob) {
+                    if (blob.size <= maxFileSize || currentQuality <= 0.1 || attempts >= maxAttempts) {
+                        compressedBlob = blob;
+                        displayCompressedImage(canvas.toDataURL(), blob, width, height);
+                        hideProcessing();
+                    } else {
+                        currentQuality -= 0.1;
+                        attempts++;
+                        setTimeout(tryCompress, 100);
+                    }
+                }, 'image/jpeg', currentQuality);
+            }
+
+            tryCompress();
+        }
+
+        function calculateNewDimensions(originalWidth, originalHeight, maxWidth, maxHeight) {
+            let width = originalWidth;
+            let height = originalHeight;
+
+            // Check if resizing is needed
+            if (width > maxWidth || height > maxHeight) {
+                const widthRatio = maxWidth / width;
+                const heightRatio = maxHeight / height;
+                const ratio = Math.min(widthRatio, heightRatio);
+
+                width = Math.round(width * ratio);
+                height = Math.round(height * ratio);
+            }
+
+            return { width, height };
+        }
+
+        function displayCompressedImage(dataUrl, blob, width, height) {
+            const compressedImage = document.getElementById('compressedImage');
+            compressedImage.src = dataUrl;
+            
+            const info = document.getElementById('compressedInfo');
+            const compressionRatio = ((originalFile.size - blob.size) / originalFile.size * 100).toFixed(1);
+            
+            info.innerHTML = `
+                <div class="info-row">
+                    <span class="info-label">Kích thước:</span>
+                    <span class="info-value">${width} × ${height} px</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Dung lượng:</span>
+                    <span class="info-value">${formatFileSize(blob.size)}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Tiết kiệm:</span>
+                    <span class="info-value">${formatFileSize(originalFile.size - blob.size)} (${compressionRatio}%)</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Định dạng:</span>
+                    <span class="info-value">image/jpeg</span>
+                </div>
+            `;
+        }
+
+        function reprocessImage() {
+            if (originalFile) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        showProcessing();
+                        compressImage(img, originalFile);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(originalFile);
+            }
+        }
+
+        function downloadImage() {
+            if (compressedBlob) {
+                const link = document.createElement('a');
+                link.download = getCompressedFileName(fileName);
+                link.href = URL.createObjectURL(compressedBlob);
+                link.click();
+                URL.revokeObjectURL(link.href);
+            }
+        }
+
+        function getCompressedFileName(originalName) {
+            const nameWithoutExtension = originalName.replace(/\.[^/.]+$/, "");
+            return `${nameWithoutExtension}_compressed.jpg`;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
