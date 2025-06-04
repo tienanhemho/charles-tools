@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zalo Params Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; margin-bottom: 30px;}
+        h2 { color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 10px; margin-top: 0; }
+        .row { display: flex; flex-wrap: wrap; margin: 0 -15px; } /* Added row for flex layout */
+        .column { flex: 1; padding: 0 15px; min-width: 300px; } /* Added column for flex items */
+        .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;}
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555;}
+        input[type="text"], textarea { width: calc(100% - 24px); padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
+        textarea { min-height: 80px; }
+        button { background-color: #007bff; color: white; padding: 12px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        pre { background-color: #e9e9e9; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: "Courier New", Courier, monospace; font-size: 13px; border: 1px solid #ddd; }
+        .error { color: red; font-weight: bold; margin-top: 10px; font-size: 14px; }
+        .output-group { margin-top: 20px; }
+        .output-group p { margin: 8px 0; font-size: 14px; }
+        .output-group strong { color: #333; }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .column {
+                flex-basis: 100%; /* Stack columns on smaller screens */
+                min-width: unset;
+            }
+            .row { margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Zalo Parameters Utility</h1>
+
+        <div class="row"> <!-- Wrap sections in a row -->
+            <div class="column"> <!-- Column for Step 1 -->
+                <div class="section">
+                    <h2>Step 1: Get Encrypt Key & Device Info</h2>
+                    <label for="zcid">ZCID:</label>
+                    <input type="text" id="zcid" value="14BDFB947FE1DD01A4A7FB9DE8EF346DBA92AA38">
+
+                    <label for="zcid_ext">ZCID Ext:</label>
+                    <input type="text" id="zcid_ext" value="0e3cabf21">
+
+                    <button onclick="processStep1()">Get Encrypt Key & Info</button>
+
+                    <div class="output-group">
+                        <p><strong>Encrypt Key:</strong></p>
+                        <pre id="encryptKeyResult">-</pre>
+                        <p><strong>IMEI:</strong></p>
+                        <pre id="imeiResult">-</pre>
+                        <p><strong>First Launch Time:</strong></p>
+                        <pre id="firstLaunchTimeResult">-</pre>
+                        <p><strong>Type:</strong></p>
+                        <pre id="typeResult">-</pre>
+                        <p id="step1Error" class="error"></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="column"> <!-- Column for Step 2 -->
+                <div class="section">
+                    <h2>Step 2: Decode Parameters</h2>
+                    <label for="encryptKeyInput">Encrypt Key (auto-filled or manual):</label>
+                    <input type="text" id="encryptKeyInput">
+
+                    <label for="ciphertext">Ciphertext (Base64):</label>
+                    <textarea id="ciphertext" rows="4">26Y+QwTx4yloIINayTbrIbOFno6zbKKMxC7UAUqgX7272KZcgYympExEmOVVf+nRKOufvA6phE6xtTYK71DR57eIo=</textarea>
+
+                    <button onclick="processStep2()">Decode Parameters</button>
+
+                    <div class="output-group">
+                        <p><strong>Decoded Parameters:</strong></p>
+                        <pre id="decodedParamsResult">-</pre>
+                        <p id="step2Error" class="error"></p>
+                    </div>
+                </div>
+            </div>
+        </div> <!-- End row -->
+    </div>
+
+    <script>
+        // CryptoJS is globally available from the CDN
+        
+        class ParamsEncryptor {
+            enc_ver = "v2";
+            // Properties like zcid, encryptKey, type, imei, firstLaunchTime will be set
+        
+            getEncryptKey() {
+                if (!this.encryptKey)
+                    throw new Error("getEncryptKey: didn\'t create encryptKey yet");
+                return this.encryptKey;
+            }
+        
+            createZcid(type, imei, firstLaunchTime) {
+                if (!type || !imei || !firstLaunchTime)
+                    throw new Error("createZcid: missing params");
+                var msg = `${type},${imei},${firstLaunchTime}`;
+                var s = ParamsEncryptor.encodeAES("3FC4F0D2AB50057BCE0D90D9187A22B1", msg, "hex", true);
+                this.zcid = s;
+            }
+        
+            decodeZcid(s) {
+                if (!s)
+                    throw new Error("decodeZcid: zcid is null");
+                return ParamsEncryptor.decodeAES("3FC4F0D2AB50057BCE0D90D9187A22B1", s, "hex", true);
+            }
+        
+            createEncryptKey(e) {
+                var _this = this;
+                if (e === void 0) { e = 0; }
+                var t = function (e_str, t_str) { // Renamed e to e_str to avoid conflict with outer e
+                    var n_obj = ParamsEncryptor.processStr(e_str);
+                    var _a = ParamsEncryptor.processStr(t_str), a = _a.even, s = _a.odd;
+                     if (!n_obj.even || !a || !s) // check n_obj.even
+                        return !1;
+                    var n = n_obj.even; // get even part from n_obj
+                    var i = n.slice(0, 8).join("") + a.slice(0, 12).join("") + s.reverse().slice(0, 12).join("");
+                    return (_this.encryptKey = i), !0;
+                };
+                if (!this.zcid || !this.zcid_ext)
+                    throw new Error("createEncryptKey: zcid or zcid_ext is null");
+                try {
+                    var n_md5 = CryptoJS.MD5(this.zcid_ext).toString().toUpperCase();
+                    if (t(n_md5, this.zcid) || !(e < 3))
+                        return !1;
+                    this.createEncryptKey(e + 1);
+                }
+                catch (n_err) { // Renamed n to n_err
+                    if (e < 3) this.createEncryptKey(e + 1);
+                }
+                return !0;
+            };
+        
+            getParams() {
+                return this.zcid
+                    ? {
+                        zcid: this.zcid,
+                        zcid_ext: this.zcid_ext,
+                        enc_ver: this.enc_ver,
+                    }
+                    : null;
+            };
+        
+            static processStr(e) {
+                if (!e || "string" != typeof e)
+                    return {
+                        even: null,
+                        odd: null,
+                    };
+                var _a = Array.from(e).reduce(function (acc, t_char, n_idx) { // Renamed e,t,n
+                     acc[n_idx % 2].push(t_char); return acc;
+                    }, [[], []]), t_arr = _a[0], n_arr = _a[1];
+                return {
+                    even: t_arr,
+                    odd: n_arr,
+                };
+            };
+        
+            static randomString(e, t) {
+                var n = e || 6, a = t && e && t > e ? t : 12;
+                var s = Math.floor(Math.random() * (a - n + 1)) + n;
+                if (s > 12) {
+                    var e_1 = "";
+                    for (; s > 0;)
+                        (e_1 += Math.random()
+                            .toString(16)
+                            .substring(2, 2 + (s > 12 ? 12 : s))),
+                            (s -= 12);
+                    return e_1;
+                }
+                return Math.random().toString(16).substring(2, 2 + s);
+            };
+        
+            static encodeAES(e_key, message, type, uppercase, s_retry) { // Renamed e,s
+                if (s_retry === void 0) { s_retry = 0; }
+                if (!message)
+                    return null;
+                try {
+                    {
+                        var encoder = "hex" == type ? CryptoJS.enc.Hex : CryptoJS.enc.Base64;
+                        var key = CryptoJS.enc.Utf8.parse(e_key);
+                        var cfg = {
+                            iv: CryptoJS.lib.WordArray.create([0,0,0,0], 16) // Correct IV creation
+                        };
+                        var encrypted = CryptoJS.AES.encrypt(message, key, {
+                            iv: cfg.iv, // Use the created IV
+                            mode: CryptoJS.mode.CBC,
+                            padding: CryptoJS.pad.Pkcs7,
+                        }).ciphertext.toString(encoder);
+                        return uppercase ? encrypted.toUpperCase() : encrypted;
+                    }
+                }
+                catch (o) {
+                    return s_retry < 3 ? ParamsEncryptor.encodeAES(e_key, message, type, uppercase, s_retry + 1) : null;
+                }
+            }
+        
+            static decodeAES(e_key, ciphertext, type, uppercase) { // Renamed e
+                try {
+                    const encoder = type === 'hex' ? CryptoJS.enc.Hex : CryptoJS.enc.Base64;
+                    const key = CryptoJS.enc.Utf8.parse(e_key);
+                     const cfg = {
+                        iv: CryptoJS.lib.WordArray.create([0,0,0,0], 16) // Correct IV creation
+                    };
+            
+                    const bytes = encoder.parse(ciphertext);
+            
+                    const decrypted = CryptoJS.AES.decrypt({ ciphertext: bytes }, key, {
+                        iv: cfg.iv, // Use the created IV
+                        mode: CryptoJS.mode.CBC,
+                        padding: CryptoJS.pad.Pkcs7,
+                    }).toString(CryptoJS.enc.Utf8);
+            
+                    return decrypted;
+                } catch (error) {
+                    console.error('Decryption error:', error);
+                    document.getElementById('step2Error').textContent = 'Decryption error: ' + error.message;
+                    return null;
+                }
+            }
+        
+            static fromZC(zcid, zcid_ext) {
+                var newParamsEnc = new ParamsEncryptor();
+                var decodedZcidString = ParamsEncryptor.decodeAES("3FC4F0D2AB50057BCE0D90D9187A22B1", zcid, "hex", true);
+                if (!decodedZcidString) {
+                    throw new Error("Failed to decode ZCID. Ensure ZCID is correct and key is valid.");
+                }
+                var from = decodedZcidString.split(",");
+                
+                newParamsEnc.zcid = zcid;
+                newParamsEnc.zcid_ext = zcid_ext;
+                newParamsEnc.type = parseInt(from[0]);
+                newParamsEnc.imei = from[1];
+                newParamsEnc.firstLaunchTime = parseInt(from[2]);
+                newParamsEnc.createEncryptKey();
+                return newParamsEnc;
+            }
+        }
+        
+        // This is the standalone decodeAES function, similar to ParamsEncryptor.decodeAES
+        // For simplicity, we'll use ParamsEncryptor.decodeAES in processStep2
+        function globalDecodeAES(encrypt_key, ciphertext, type, uppercase) {
+            // This uppercase parameter is not used in the original decryption logic shown
+            try {
+                const encoder = type === 'hex' ? CryptoJS.enc.Hex : CryptoJS.enc.Base64;
+                const key = CryptoJS.enc.Utf8.parse(encrypt_key);
+                const cfg = {
+                    iv: CryptoJS.lib.WordArray.create([0,0,0,0], 16) // Correct IV creation
+                };
+        
+                const bytes = encoder.parse(ciphertext);
+        
+                const decrypted = CryptoJS.AES.decrypt({ ciphertext: bytes }, key, {
+                    iv: cfg.iv, // Use the created IV
+                    mode: CryptoJS.mode.CBC,
+                    padding: CryptoJS.pad.Pkcs7,
+                }).toString(CryptoJS.enc.Utf8);
+        
+                return decrypted;
+            } catch (error) {
+                console.error('Global Decryption error:', error);
+                document.getElementById('step2Error').textContent = 'Global Decryption error: ' + error.message;
+                return null;
+            }
+        }  
+
+        let currentParamsEncryptor = null;
+
+        function processStep1() {
+            document.getElementById('step1Error').textContent = '';
+            document.getElementById('encryptKeyResult').textContent = '-';
+            document.getElementById('imeiResult').textContent = '-';
+            document.getElementById('firstLaunchTimeResult').textContent = '-';
+            document.getElementById('typeResult').textContent = '-';
+            document.getElementById('encryptKeyInput').value = '';
+
+
+            const zcid = document.getElementById('zcid').value;
+            const zcid_ext = document.getElementById('zcid_ext').value;
+
+            if (!zcid || !zcid_ext) {
+                document.getElementById('step1Error').textContent = 'ZCID and ZCID Ext are required.';
+                return;
+            }
+
+            try {
+                currentParamsEncryptor = ParamsEncryptor.fromZC(zcid, zcid_ext);
+                const encryptKey = currentParamsEncryptor.getEncryptKey();
+                
+                document.getElementById('encryptKeyResult').textContent = encryptKey;
+                document.getElementById('imeiResult').textContent = currentParamsEncryptor.imei;
+                document.getElementById('firstLaunchTimeResult').textContent = currentParamsEncryptor.firstLaunchTime;
+                document.getElementById('typeResult').textContent = currentParamsEncryptor.type;
+                
+                // Pre-fill encrypt key for step 2
+                document.getElementById('encryptKeyInput').value = encryptKey;
+
+            } catch (error) {
+                console.error("Error in Step 1:", error);
+                document.getElementById('step1Error').textContent = 'Error: ' + error.message;
+                currentParamsEncryptor = null;
+            }
+        }
+
+        function processStep2() {
+            document.getElementById('step2Error').textContent = '';
+            document.getElementById('decodedParamsResult').textContent = '-';
+
+            const encryptKey = document.getElementById('encryptKeyInput').value;
+            const ciphertext = document.getElementById('ciphertext').value;
+
+            if (!encryptKey || !ciphertext) {
+                document.getElementById('step2Error').textContent = 'Encrypt Key and Ciphertext are required.';
+                return;
+            }
+
+            try {
+                // Using ParamsEncryptor.decodeAES as it's part of the class structure
+                // The global decodeAES is also available if preferred.
+                const decoded = ParamsEncryptor.decodeAES(encryptKey, ciphertext, "base64", true); // Assuming type is base64 and uppercase is true (though not used in decrypt)
+                
+                if (decoded !== null) {
+                    try {
+                        // Try to parse as JSON and pretty print
+                        const jsonObj = JSON.parse(decoded);
+                        document.getElementById('decodedParamsResult').textContent = JSON.stringify(jsonObj, null, 2);
+                    } catch (e) {
+                        // If not a valid JSON, display as plain text
+                        document.getElementById('decodedParamsResult').textContent = decoded;
+                    }
+                } else {
+                    document.getElementById('decodedParamsResult').textContent = "Failed to decode. Check console for errors.";
+                }
+            } catch (error) {
+                console.error("Error in Step 2:", error);
+                document.getElementById('step2Error').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Automatically run step 1 on load with default values if you want
+        // window.onload = processStep1;
+
+    </script>
+</body>
+</html>
