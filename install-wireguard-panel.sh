@@ -17,27 +17,25 @@ else
 fi
 
 # --- Nhập config chung ---
-printf "Nhập domain cho VPN (vd: vpn.example.com): "
-read WG_HOST
+read -p "Nhập domain cho VPN (vd: vpn.example.com): " WG_HOST
 
 # WG-Easy password
-printf "Nhập mật khẩu cho WG-Easy (Enter để random): "
-stty -echo; read WG_PASSWORD; stty echo; echo ""
+read -sp "Nhập mật khẩu cho WG-Easy (Enter để random): " WG_PASSWORD
+echo ""
 if [ -z "$WG_PASSWORD" ]; then
   WG_PASSWORD=$(openssl rand -base64 12)
   AUTO_WG_PASS=true
 fi
 
 # Nếu có NPM thì cần email + password
-if [ "$MODE" -eq 2 ]; then
-  printf "Nhập email admin cho NPM (Let's Encrypt + login): "
-  read ADMIN_EMAIL
+if [[ "$MODE" == "2" ]]; then
+  read -p "Nhập email admin cho NPM (Let's Encrypt + login): " ADMIN_EMAIL
   if [ -z "$ADMIN_EMAIL" ]; then
     ADMIN_EMAIL="admin@${WG_HOST}"
   fi
 
-  printf "Nhập mật khẩu cho NPM Admin (Enter để random): "
-  stty -echo; read ADMIN_PASS; stty echo; echo ""
+  read -sp "Nhập mật khẩu cho NPM Admin (Enter để random): " ADMIN_PASS
+  echo ""
   if [ -z "$ADMIN_PASS" ]; then
     ADMIN_PASS=$(openssl rand -base64 12)
     AUTO_NPM_PASS=true
@@ -47,6 +45,13 @@ fi
 # --- Update system ---
 apt update && apt upgrade -y
 apt install -y apt-transport-https ca-certificates curl jq software-properties-common
+
+# --- Enable IPv4/IPv6 forwarding ---
+cat <<EOF >/etc/sysctl.d/99-wireguard.conf
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+EOF
+sysctl --system
 
 # --- Install Docker ---
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg
@@ -78,7 +83,8 @@ services:
     environment:
       - WG_HOST=${WG_HOST}
       - PASSWORD=${WG_PASSWORD}
-      - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
+      - WG_DEFAULT_ADDRESS=10.8.0.x,fd42:42:42::x
+      - WG_DEFAULT_DNS=1.1.1.1,2606:4700:4700::1111
     volumes:
       - ./wg-config:/etc/wireguard
     ports:
@@ -89,12 +95,12 @@ services:
       - SYS_MODULE
     sysctls:
       - net.ipv4.ip_forward=1
-      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.forwarding=1
     restart: unless-stopped
 EOF
 
 # Nếu chọn cài cả NPM
-if [ "$MODE" -eq 2 ]; then
+if [[ "$MODE" == "2" ]]; then
 cat >> docker-compose.yml <<EOF
 
   npm:
@@ -117,76 +123,3 @@ networks:
   default:
     driver: bridge
 EOF
-
-# --- Start stack ---
-docker-compose up -d
-
-# --- Nếu có NPM thì cấu hình tự động ---
-if [ "$MODE" -eq 2 ]; then
-  echo "⏳ Đợi NPM khởi động..."
-  sleep 40
-
-  TOKEN=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
-    -H 'Content-Type: application/json' \
-    -d '{"identity":"admin@example.com","secret":"changeme"}' \
-    | jq -r .token)
-
-  if [ "$TOKEN" != "null" ]; then
-    # Update admin user
-    curl -s -X PUT http://127.0.0.1:81/api/users/1 \
-      -H "Authorization: Bearer $TOKEN" \
-      -H 'Content-Type: application/json' \
-      -d '{"email":"'"$ADMIN_EMAIL"'","name":"Administrator","nickname":"Admin","roles":["admin"],"is_disabled":false,"auth":[{"type":"password","secret":"'"$ADMIN_PASS"'"}]}'
-
-    # Login với pass mới
-    TOKEN=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
-      -H 'Content-Type: application/json' \
-      -d '{"identity":"'"$ADMIN_EMAIL"'","secret":"'"$ADMIN_PASS"'"}' \
-      | jq -r .token)
-
-    # Tạo proxy host cho WG-Easy
-    curl -s -X POST http://127.0.0.1:81/api/nginx/proxy-hosts \
-      -H "Authorization: Bearer $TOKEN" \
-      -H 'Content-Type: application/json' \
-      -d '{
-        "domain_names":["'"$WG_HOST"'"],
-        "forward_scheme":"http",
-        "forward_host":"wg-easy",
-        "forward_port":51821,
-        "access_list_id":0,
-        "certificate_id":0,
-        "ssl_forced":true,
-        "caching_enabled":false,
-        "block_exploits":true,
-        "http2_support":true,
-        "hsts_enabled":false,
-        "hsts_subdomains":false,
-        "meta": {
-          "letsencrypt_email":"'"$ADMIN_EMAIL"'",
-          "letsencrypt_agree":true
-        }
-      }'
-  else
-    echo "⚠️ Không thể login vào NPM API bằng tài khoản mặc định."
-  fi
-fi
-
-# --- Summary ---
-echo "========================================"
-echo "🎉 Cài đặt hoàn tất!"
-echo "WG-Easy panel: https://${WG_HOST}"
-echo "VPN UDP port: 51820"
-if [ "$AUTO_WG_PASS" = true ]; then
-  echo "WG-Easy Password (auto): $WG_PASSWORD"
-else
-  echo "WG-Easy Password (bạn nhập)"
-fi
-if [ "$MODE" -eq 2 ]; then
-  echo "NPM Admin: $ADMIN_EMAIL"
-  if [ "$AUTO_NPM_PASS" = true ]; then
-    echo "NPM Password (auto): $ADMIN_PASS"
-  else
-    echo "NPM Password (bạn nhập)"
-  fi
-fi
-echo "========================================"
