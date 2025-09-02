@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 echo "==============================="
@@ -9,33 +9,36 @@ echo "==============================="
 echo "Chọn chế độ cài đặt:"
 echo "  1) Chỉ WG-Easy"
 echo "  2) WG-Easy + Nginx Proxy Manager (mặc định)"
-read -p "Nhập lựa chọn [1-2] (Enter = 2): " MODE_INPUT
-if [[ "$MODE_INPUT" =~ ^[1-2]$ ]]; then
-  MODE=$MODE_INPUT
-else
-  MODE=2
-fi
+printf "Nhập lựa chọn [1-2] (Enter = 2): "
+read MODE_INPUT
+case "$MODE_INPUT" in
+  1) MODE=1 ;;
+  2) MODE=2 ;;
+  *) MODE=2 ;;
+esac
 
 # --- Nhập config chung ---
-read -p "Nhập domain cho VPN (vd: vpn.example.com): " WG_HOST
+printf "Nhập domain cho VPN (vd: vpn.example.com): "
+read WG_HOST
 
 # WG-Easy password
-read -sp "Nhập mật khẩu cho WG-Easy (Enter để random): " WG_PASSWORD
-echo ""
+printf "Nhập mật khẩu cho WG-Easy (Enter để random): "
+stty -echo; read WG_PASSWORD; stty echo; echo ""
 if [ -z "$WG_PASSWORD" ]; then
   WG_PASSWORD=$(openssl rand -base64 12)
   AUTO_WG_PASS=true
 fi
 
 # Nếu có NPM thì cần email + password
-if [[ "$MODE" == "2" ]]; then
-  read -p "Nhập email admin cho NPM (Let's Encrypt + login): " ADMIN_EMAIL
+if [ "$MODE" -eq 2 ]; then
+  printf "Nhập email admin cho NPM (Let's Encrypt + login): "
+  read ADMIN_EMAIL
   if [ -z "$ADMIN_EMAIL" ]; then
     ADMIN_EMAIL="admin@${WG_HOST}"
   fi
 
-  read -sp "Nhập mật khẩu cho NPM Admin (Enter để random): " ADMIN_PASS
-  echo ""
+  printf "Nhập mật khẩu cho NPM Admin (Enter để random): "
+  stty -echo; read ADMIN_PASS; stty echo; echo ""
   if [ -z "$ADMIN_PASS" ]; then
     ADMIN_PASS=$(openssl rand -base64 12)
     AUTO_NPM_PASS=true
@@ -92,7 +95,7 @@ services:
 EOF
 
 # Nếu chọn cài cả NPM
-if [[ "$MODE" == "2" ]]; then
+if [ "$MODE" -eq 2 ]; then
 cat >> docker-compose.yml <<EOF
 
   npm:
@@ -120,7 +123,7 @@ EOF
 docker-compose up -d
 
 # --- Nếu có NPM thì cấu hình tự động ---
-if [[ "$MODE" == "2" ]]; then
+if [ "$MODE" -eq 2 ]; then
   echo "⏳ Đợi NPM khởi động..."
   sleep 40
 
@@ -179,7 +182,7 @@ if [ "$AUTO_WG_PASS" = true ]; then
 else
   echo "WG-Easy Password (bạn nhập)"
 fi
-if [[ "$MODE" == "2" ]]; then
+if [ "$MODE" -eq 2 ]; then
   echo "NPM Admin: $ADMIN_EMAIL"
   if [ "$AUTO_NPM_PASS" = true ]; then
     echo "NPM Password (auto): $ADMIN_PASS"
