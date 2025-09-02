@@ -9,13 +9,12 @@ echo "==============================="
 echo "Chọn chế độ cài đặt:"
 echo "  1) Chỉ WG-Easy"
 echo "  2) WG-Easy + Nginx Proxy Manager (mặc định)"
-printf "Nhập lựa chọn [1-2] (Enter = 2): "
-read MODE_INPUT
-case "$MODE_INPUT" in
-  1) MODE=1 ;;
-  2) MODE=2 ;;
-  *) MODE=2 ;;
-esac
+read -p "Nhập lựa chọn [1-2] (Enter = 2): " MODE_INPUT
+if [[ "$MODE_INPUT" == "1" ]]; then
+  MODE=1
+else
+  MODE=2
+fi
 
 # --- Nhập config chung ---
 printf "Nhập domain cho VPN (vd: vpn.example.com): "
