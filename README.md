@@ -39,3 +39,10 @@ Tổng hợp các công cụ hữu ích
 - Hiển thị so sánh ảnh gốc và ảnh đã tối ưu
 - Tính toán % tiết kiệm dung lượng
 - Không cần cài đặt, chạy trực tiếp trên trình duyệt
+
+
+## install-wireguard-wg-easy-nginx-proxy-manager
+**[install-wireguard-wg-easy-nginx-proxy-manager](https://tienanhemho.github.io/charles-tools/install-wireguard-wg-easy-nginx-proxy-manager.html)**
+- Add WireGuard + WG-Easy installer script with Nginx Proxy Manager support
+- Câu lệnh cài đặt tự động WireGuard và WG-Easy với hỗ trợ Nginx Proxy Manager
+ curl -fsSL https://raw.githubusercontent.com/tienanhemho/charles-tools/refs/heads/main/install-wireguard-panel.sh | sudo bash -s

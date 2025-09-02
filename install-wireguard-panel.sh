@@ -9,8 +9,12 @@ echo "==============================="
 echo "Chọn chế độ cài đặt:"
 echo "  1) Chỉ WG-Easy"
 echo "  2) WG-Easy + Nginx Proxy Manager (mặc định)"
-read -p "Nhập lựa chọn [1-2] (Enter = 2): " MODE
-MODE=${MODE:-2}
+read -p "Nhập lựa chọn [1-2] (Enter = 2): " MODE_INPUT
+if [[ "$MODE_INPUT" =~ ^[1-2]$ ]]; then
+  MODE=$MODE_INPUT
+else
+  MODE=2
+fi
 
 # --- Nhập config chung ---
 read -p "Nhập domain cho VPN (vd: vpn.example.com): " WG_HOST
@@ -24,7 +28,7 @@ if [ -z "$WG_PASSWORD" ]; then
 fi
 
 # Nếu có NPM thì cần email + password
-if [ "$MODE" -eq 2 ]; then
+if [[ "$MODE" == "2" ]]; then
   read -p "Nhập email admin cho NPM (Let's Encrypt + login): " ADMIN_EMAIL
   if [ -z "$ADMIN_EMAIL" ]; then
     ADMIN_EMAIL="admin@${WG_HOST}"
@@ -88,7 +92,7 @@ services:
 EOF
 
 # Nếu chọn cài cả NPM
-if [ "$MODE" -eq 2 ]; then
+if [[ "$MODE" == "2" ]]; then
 cat >> docker-compose.yml <<EOF
 
   npm:
@@ -116,7 +120,7 @@ EOF
 docker-compose up -d
 
 # --- Nếu có NPM thì cấu hình tự động ---
-if [ "$MODE" -eq 2 ]; then
+if [[ "$MODE" == "2" ]]; then
   echo "⏳ Đợi NPM khởi động..."
   sleep 40
 
@@ -175,7 +179,7 @@ if [ "$AUTO_WG_PASS" = true ]; then
 else
   echo "WG-Easy Password (bạn nhập)"
 fi
-if [ "$MODE" -eq 2 ]; then
+if [[ "$MODE" == "2" ]]; then
   echo "NPM Admin: $ADMIN_EMAIL"
   if [ "$AUTO_NPM_PASS" = true ]; then
     echo "NPM Password (auto): $ADMIN_PASS"
