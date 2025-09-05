@@ -242,7 +242,6 @@ else
   echo "⚠️  UFW chưa được cài. Bỏ qua bước mở firewall."
 fi
 
-
 # --- Nếu có NPM thì cấu hình tự động ---
 if [ "$MODE" -eq 2 ]; then
   echo "⏳ Đợi NPM khởi động và sẵn sàng..."
@@ -256,17 +255,18 @@ if [ "$MODE" -eq 2 ]; then
     ATTEMPT=$((ATTEMPT + 1))
     echo "🔄 Thử kết nối NPM API (lần $ATTEMPT/$MAX_ATTEMPTS)..."
     
-    # Check if NPM API is responding
-    if curl -s -f http://127.0.0.1:81/api/tokens > /dev/null 2>&1; then
-      echo "✅ NPM API đã sẵn sàng!"
+    # Check if NPM API is responding (400 = server ready but bad request, which is expected)
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 http://127.0.0.1:81/api/tokens 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" = "400" ] || [ "$HTTP_CODE" = "200" ]; then
+      echo "✅ NPM API đã sẵn sàng! (HTTP: $HTTP_CODE)"
       
       # Try to get token
       RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
         -H 'Content-Type: application/json' \
         -d '{"identity":"admin@example.com","secret":"changeme"}' \
-        2>/dev/null)
+        --connect-timeout 10 --max-time 15 2>/dev/null || echo '{"error":"curl_failed"}')
       
-      TOKEN=$(echo "$RESPONSE" | jq -r .token 2>/dev/null)
+      TOKEN=$(echo "$RESPONSE" | jq -r .token 2>/dev/null || echo "null")
       
       if [ "$TOKEN" != "null" ] && [ ! -z "$TOKEN" ] && [ "$TOKEN" != "" ]; then
         echo "🔑 Đã lấy được token thành công!"
@@ -275,7 +275,7 @@ if [ "$MODE" -eq 2 ]; then
         echo "⚠️ API phản hồi nhưng không lấy được token. Response: $RESPONSE"
       fi
     else
-      echo "⏳ NPM API chưa sẵn sàng, đợi 15 giây..."
+      echo "⏳ NPM API chưa sẵn sàng (HTTP: $HTTP_CODE), đợi 15 giây..."
     fi
     
     if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
@@ -284,32 +284,38 @@ if [ "$MODE" -eq 2 ]; then
   done
 
   if [ "$TOKEN" != "null" ] && [ ! -z "$TOKEN" ] && [ "$TOKEN" != "" ]; then
-    # Update admin user
+    echo "🔑 Token hợp lệ: ${TOKEN:0:20}..."
+    
+    # Update admin user info (không bao gồm password)
     echo "👤 Cập nhật thông tin admin..."
     UPDATE_RESPONSE=$(curl -s -X PUT http://127.0.0.1:81/api/users/1 \
       -H "Authorization: Bearer $TOKEN" \
       -H 'Content-Type: application/json' \
-      -d '{"email":"'"$ADMIN_EMAIL"'","name":"Administrator","nickname":"Admin","roles":["admin"],"is_disabled":false,"auth":[{"type":"password","secret":"'"$ADMIN_PASS"'"}]}')
+      -d '{"email":"'"$ADMIN_EMAIL"'","name":"Administrator","nickname":"Admin","roles":["admin"],"is_disabled":false}' \
+      --connect-timeout 10 --max-time 15 2>/dev/null || echo '{"error":"curl_failed"}')
 
-    echo "📝 Update response: $UPDATE_RESPONSE"
-
-    # Login với pass mới
-    echo "🔐 Đăng nhập với mật khẩu mới..."
-    NEW_TOKEN_RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
+    echo "📝 Update user info response: $UPDATE_RESPONSE"
+    
+    # Đổi password riêng biệt
+    echo "🔐 Đổi mật khẩu admin..."
+    PASSWORD_RESPONSE=$(curl -s -X PUT http://127.0.0.1:81/api/users/1/auth \
+      -H "Authorization: Bearer $TOKEN" \
       -H 'Content-Type: application/json' \
-      -d '{"identity":"'"$ADMIN_EMAIL"'","secret":"'"$ADMIN_PASS"'"}')
+      -d '{"type":"password","current":"changeme","secret":"'"$ADMIN_PASS"'"}' \
+      --connect-timeout 10 --max-time 15 2>/dev/null || echo 'false')
     
-    NEW_TOKEN=$(echo "$NEW_TOKEN_RESPONSE" | jq -r .token 2>/dev/null)
+    echo "🔍 Password change response: $PASSWORD_RESPONSE"
     
-    if [ "$NEW_TOKEN" != "null" ] && [ ! -z "$NEW_TOKEN" ]; then
-      TOKEN="$NEW_TOKEN"
-      echo "✅ Đăng nhập thành công với tài khoản mới!"
+    if [ "$PASSWORD_RESPONSE" = "true" ]; then
+      echo "✅ Đổi mật khẩu thành công!"
     else
-      echo "⚠️ Không thể đăng nhập với tài khoản mới, sử dụng token cũ. Response: $NEW_TOKEN_RESPONSE"
+      echo "⚠️ Không thể đổi mật khẩu. Response: $PASSWORD_RESPONSE"
+      echo "🔧 Có thể mật khẩu hiện tại không phải 'changeme' hoặc API có thay đổi"
+      echo "📋 NPM Admin sẽ sử dụng credentials mặc định: admin@example.com / changeme"
     fi
 
-    # Tạo proxy host cho WG-Easy
-    echo "🔗 Tạo proxy host cho WG-Easy..."
+    # Tạo proxy host cho WG-Easy với SSL certificate tự động và force SSL
+    echo "🔗 Tạo proxy host cho WG-Easy (bao gồm SSL certificate + force HTTPS)..."
     PROXY_RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/nginx/proxy-hosts \
       -H "Authorization: Bearer $TOKEN" \
       -H 'Content-Type: application/json' \
@@ -318,27 +324,34 @@ if [ "$MODE" -eq 2 ]; then
         "forward_scheme":"http",
         "forward_host":"wg-easy",
         "forward_port":51821,
-        "access_list_id":0,
-        "certificate_id":0,
+        "access_list_id":"0",
+        "certificate_id":"new",
         "ssl_forced":true,
-        "caching_enabled":false,
-        "block_exploits":true,
+        "caching_enabled":true,
+        "allow_websocket_upgrade":true,
+        "block_exploits":false,
         "http2_support":true,
-        "hsts_enabled":false,
+        "hsts_enabled":true,
         "hsts_subdomains":false,
-        "meta": {
+        "meta":{
           "letsencrypt_email":"'"$ADMIN_EMAIL"'",
-          "letsencrypt_agree":true
-        }
-      }')
+          "letsencrypt_agree":true,
+          "dns_challenge":false
+        },
+        "advanced_config":"",
+        "locations":[]
+      }' \
+      --connect-timeout 15 --max-time 60 2>/dev/null || echo '{"error":"curl_failed"}')
     
     echo "🌐 Proxy host response: $PROXY_RESPONSE"
     
-    PROXY_ID=$(echo "$PROXY_RESPONSE" | jq -r .id 2>/dev/null)
+    PROXY_ID=$(echo "$PROXY_RESPONSE" | jq -r .id 2>/dev/null || echo "null")
     if [ "$PROXY_ID" != "null" ] && [ ! -z "$PROXY_ID" ]; then
-      echo "✅ Đã tạo proxy host thành công (ID: $PROXY_ID)"
+      echo "✅ Đã tạo proxy host, SSL certificate và force HTTPS thành công (ID: $PROXY_ID)"
+      echo "🎉 WG-Easy đã sẵn sàng truy cập qua HTTPS!"
     else
       echo "⚠️ Có thể có lỗi khi tạo proxy host, kiểm tra logs NPM"
+      echo "📝 Response: $PROXY_RESPONSE"
     fi
   else
     echo "❌ Không thể lấy token từ NPM API sau $MAX_ATTEMPTS lần thử."
@@ -354,19 +367,37 @@ fi
 # --- Summary ---
 echo "========================================"
 echo "🎉 Cài đặt hoàn tất!"
-echo "WG-Easy panel: https://${WG_HOST}"
-echo "VPN UDP port: 51820"
+echo ""
+echo "📋 THÔNG TIN TRUY CẬP:"
+echo "WG-Easy VPN Panel: https://${WG_HOST}"
+echo "WG-Easy Username: admin"
 if [ "$AUTO_WG_PASS" = true ]; then
-  echo "WG-Easy Password (auto): $WG_PASSWORD"
+  echo "WG-Easy Password: $WG_PASSWORD"
 else
-  echo "WG-Easy Password (bạn nhập)"
+  echo "WG-Easy Password: (bạn đã nhập)"
 fi
+echo "VPN UDP Port: 51820"
+echo ""
 if [ "$MODE" -eq 2 ]; then
-  echo "NPM Admin: $ADMIN_EMAIL"
-  if [ "$AUTO_NPM_PASS" = true ]; then
-    echo "NPM Password (auto): $ADMIN_PASS"
+  echo "NPM Dashboard: http://$(curl -s https://api.ipify.org):81"
+  if [ "$PASSWORD_RESPONSE" = "true" ]; then
+    echo "NPM Email: $ADMIN_EMAIL"
+    if [ "$AUTO_NPM_PASS" = true ]; then
+      echo "NPM Password: $ADMIN_PASS"
+    else
+      echo "NPM Password: (bạn đã nhập)"
+    fi
   else
-    echo "NPM Password (bạn nhập)"
+    echo "NPM Email: admin@example.com"
+    echo "NPM Password: changeme (mặc định - cần đổi thủ công)"
   fi
+  echo ""
+fi
+echo "🔧 HƯỚNG DẪN:"
+echo "1. Truy cập WG-Easy panel để tạo VPN clients"
+echo "2. Tải file config hoặc quét QR code để kết nối VPN"
+if [ "$MODE" -eq 2 ]; then
+  echo "3. Sử dụng NPM dashboard để quản lý reverse proxy"
+  echo "4. SSL certificate sẽ tự động gia hạn"
 fi
 echo "========================================"
