@@ -4,6 +4,12 @@ set -e
 echo "==============================="
 echo " 🚀 WireGuard + WG-Easy (+ NPM) Installer"
 echo "==============================="
+echo ""
+echo "💡 Script này có thể chạy lại an toàn:"
+echo "   • Tự động bypass Docker nếu đã cài"
+echo "   • Backup cấu hình cũ trước khi tạo mới"
+echo "   • Dừng containers cũ trước khi khởi động"
+echo ""
 
 # --- Menu lựa chọn ---
 echo "Chọn chế độ cài đặt:"
@@ -68,28 +74,55 @@ EOF
 sysctl --system
 
 # --- Install Docker ---
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] \
+if command -v docker >/dev/null 2>&1 && docker --version >/dev/null 2>&1; then
+  echo "✅ Docker đã được cài đặt: $(docker --version)"
+  
+  # Kiểm tra Docker đang chạy
+  if ! systemctl is-active --quiet docker; then
+    echo "🔄 Khởi động Docker service..."
+    systemctl enable docker
+    systemctl start docker
+  else
+    echo "✅ Docker service đang chạy"
+  fi
+else
+  echo "📦 Cài đặt Docker..."
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] \
 https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
 | tee /etc/apt/sources.list.d/docker.list
-apt update
-apt install -y docker-ce docker-ce-cli containerd.io
+  apt update
+  apt install -y docker-ce docker-ce-cli containerd.io
 
-systemctl enable docker
-systemctl start docker
+  systemctl enable docker
+  systemctl start docker
+  echo "✅ Docker đã được cài đặt thành công"
+fi
 
 # --- Install Docker Compose ---
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
-  -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+if command -v docker-compose >/dev/null 2>&1 && docker-compose --version >/dev/null 2>&1; then
+  echo "✅ Docker Compose đã được cài đặt: $(docker-compose --version)"
+else
+  echo "📦 Cài đặt Docker Compose..."
+  curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+    -o /usr/local/bin/docker-compose
+  chmod +x /usr/local/bin/docker-compose
+  echo "✅ Docker Compose đã được cài đặt thành công"
+fi
 
 # --- Create stack ---
+if [ -d ~/vpn-stack ]; then
+  echo "⚠️ Thư mục ~/vpn-stack đã tồn tại. Backup cấu hình cũ..."
+  mv ~/vpn-stack ~/vpn-stack.backup.$(date +%Y%m%d-%H%M%S)
+fi
+
 mkdir -p ~/vpn-stack
 cd ~/vpn-stack
 
 cat > docker-compose.yml <<EOF
 volumes:
   etc_wireguard:
+
 services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:15
@@ -122,18 +155,9 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
       - net.ipv6.conf.all.forwarding=1
       - net.ipv6.conf.default.forwarding=1
-networks:
-  wg:
-    driver: bridge
-    enable_ipv6: true
-    ipam:
-      driver: default
-      config:
-        - subnet: 10.42.42.0/24
-        - subnet: fdcc:ad94:bacf:61a3::/64
 EOF
 
-# Nếu chọn cài cả NPM
+# Nếu chọn cài cả NPM, thêm vào phần services
 if [[ "$MODE" == "2" ]]; then
 cat >> docker-compose.yml <<EOF
 
@@ -150,19 +174,37 @@ cat >> docker-compose.yml <<EOF
       - ./npm-letsencrypt:/etc/letsencrypt
     networks:
       - wg
-
 EOF
 fi
 
+# Cuối cùng mới thêm phần networks
 cat >> docker-compose.yml <<EOF
 
 networks:
-  proxy-tier:
+  wg:
     driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.42.42.0/24
+        - subnet: fdcc:ad94:bacf:61a3::/64
 EOF
 
 # --- Start stack ---
+echo "🚀 Khởi động stack..."
+
+# Kiểm tra xem có containers đang chạy không
+if docker ps -q --filter "name=wg-easy" | grep -q . || docker ps -q --filter "name=npm" | grep -q .; then
+  echo "⚠️ Phát hiện containers đang chạy. Đang dừng và xóa..."
+  docker-compose down -v 2>/dev/null || true
+  
+  # Xóa containers cũ nếu còn sót lại
+  docker rm -f wg-easy npm 2>/dev/null || true
+fi
+
 docker-compose up -d
+echo "✅ Stack đã được khởi động"
 
 # --- Firewall config (UFW) ---
 if command -v ufw >/dev/null 2>&1; then
@@ -203,29 +245,72 @@ fi
 
 # --- Nếu có NPM thì cấu hình tự động ---
 if [ "$MODE" -eq 2 ]; then
-  echo "⏳ Đợi NPM khởi động..."
-  sleep 40
+  echo "⏳ Đợi NPM khởi động và sẵn sàng..."
+  
+  # Wait for NPM to be fully ready with retry mechanism
+  MAX_ATTEMPTS=20
+  ATTEMPT=0
+  TOKEN=""
+  
+  while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    ATTEMPT=$((ATTEMPT + 1))
+    echo "🔄 Thử kết nối NPM API (lần $ATTEMPT/$MAX_ATTEMPTS)..."
+    
+    # Check if NPM API is responding
+    if curl -s -f http://127.0.0.1:81/api/tokens > /dev/null 2>&1; then
+      echo "✅ NPM API đã sẵn sàng!"
+      
+      # Try to get token
+      RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
+        -H 'Content-Type: application/json' \
+        -d '{"identity":"admin@example.com","secret":"changeme"}' \
+        2>/dev/null)
+      
+      TOKEN=$(echo "$RESPONSE" | jq -r .token 2>/dev/null)
+      
+      if [ "$TOKEN" != "null" ] && [ ! -z "$TOKEN" ] && [ "$TOKEN" != "" ]; then
+        echo "🔑 Đã lấy được token thành công!"
+        break
+      else
+        echo "⚠️ API phản hồi nhưng không lấy được token. Response: $RESPONSE"
+      fi
+    else
+      echo "⏳ NPM API chưa sẵn sàng, đợi 15 giây..."
+    fi
+    
+    if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+      sleep 15
+    fi
+  done
 
-  TOKEN=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
-    -H 'Content-Type: application/json' \
-    -d '{"identity":"admin@example.com","secret":"changeme"}' \
-    | jq -r .token)
-
-  if [ "$TOKEN" != "null" ]; then
+  if [ "$TOKEN" != "null" ] && [ ! -z "$TOKEN" ] && [ "$TOKEN" != "" ]; then
     # Update admin user
-    curl -s -X PUT http://127.0.0.1:81/api/users/1 \
+    echo "👤 Cập nhật thông tin admin..."
+    UPDATE_RESPONSE=$(curl -s -X PUT http://127.0.0.1:81/api/users/1 \
       -H "Authorization: Bearer $TOKEN" \
       -H 'Content-Type: application/json' \
-      -d '{"email":"'"$ADMIN_EMAIL"'","name":"Administrator","nickname":"Admin","roles":["admin"],"is_disabled":false,"auth":[{"type":"password","secret":"'"$ADMIN_PASS"'"}]}'
+      -d '{"email":"'"$ADMIN_EMAIL"'","name":"Administrator","nickname":"Admin","roles":["admin"],"is_disabled":false,"auth":[{"type":"password","secret":"'"$ADMIN_PASS"'"}]}')
+
+    echo "📝 Update response: $UPDATE_RESPONSE"
 
     # Login với pass mới
-    TOKEN=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
+    echo "🔐 Đăng nhập với mật khẩu mới..."
+    NEW_TOKEN_RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/tokens \
       -H 'Content-Type: application/json' \
-      -d '{"identity":"'"$ADMIN_EMAIL"'","secret":"'"$ADMIN_PASS"'"}' \
-      | jq -r .token)
+      -d '{"identity":"'"$ADMIN_EMAIL"'","secret":"'"$ADMIN_PASS"'"}')
+    
+    NEW_TOKEN=$(echo "$NEW_TOKEN_RESPONSE" | jq -r .token 2>/dev/null)
+    
+    if [ "$NEW_TOKEN" != "null" ] && [ ! -z "$NEW_TOKEN" ]; then
+      TOKEN="$NEW_TOKEN"
+      echo "✅ Đăng nhập thành công với tài khoản mới!"
+    else
+      echo "⚠️ Không thể đăng nhập với tài khoản mới, sử dụng token cũ. Response: $NEW_TOKEN_RESPONSE"
+    fi
 
     # Tạo proxy host cho WG-Easy
-    curl -s -X POST http://127.0.0.1:81/api/nginx/proxy-hosts \
+    echo "🔗 Tạo proxy host cho WG-Easy..."
+    PROXY_RESPONSE=$(curl -s -X POST http://127.0.0.1:81/api/nginx/proxy-hosts \
       -H "Authorization: Bearer $TOKEN" \
       -H 'Content-Type: application/json' \
       -d '{
@@ -245,9 +330,24 @@ if [ "$MODE" -eq 2 ]; then
           "letsencrypt_email":"'"$ADMIN_EMAIL"'",
           "letsencrypt_agree":true
         }
-      }'
+      }')
+    
+    echo "🌐 Proxy host response: $PROXY_RESPONSE"
+    
+    PROXY_ID=$(echo "$PROXY_RESPONSE" | jq -r .id 2>/dev/null)
+    if [ "$PROXY_ID" != "null" ] && [ ! -z "$PROXY_ID" ]; then
+      echo "✅ Đã tạo proxy host thành công (ID: $PROXY_ID)"
+    else
+      echo "⚠️ Có thể có lỗi khi tạo proxy host, kiểm tra logs NPM"
+    fi
   else
-    echo "⚠️ Không thể login vào NPM API bằng tài khoản mặc định."
+    echo "❌ Không thể lấy token từ NPM API sau $MAX_ATTEMPTS lần thử."
+    echo "🔧 Hướng dẫn khắc phục thủ công:"
+    echo "   1. Kiểm tra containers: docker ps"
+    echo "   2. Xem logs NPM: docker logs npm"
+    echo "   3. Truy cập http://localhost:81 để setup thủ công"
+    echo "   4. Default login: admin@example.com / changeme"
+    echo "   5. Tạo proxy host trỏ $WG_HOST → wg-easy:51821"
   fi
 fi
 
