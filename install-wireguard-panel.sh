@@ -88,29 +88,49 @@ mkdir -p ~/vpn-stack
 cd ~/vpn-stack
 
 cat > docker-compose.yml <<EOF
-version: "3.8"
-
+volumes:
+  etc_wireguard:
 services:
   wg-easy:
-    image: weejewel/wg-easy
+    image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-easy
     environment:
-      - WG_HOST=${WG_HOST}
-      - PASSWORD=${WG_PASSWORD}
-      - WG_DEFAULT_ADDRESS=10.8.0.x,fd42:42:42::x
-      - WG_DEFAULT_DNS=1.1.1.1,2606:4700:4700::1111
+      - INIT_ENABLED=true
+      - INIT_HOST=${WG_HOST}      # domain hoặc IP public
+      - INIT_USERNAME=admin          # tên user web UI
+      - INIT_PASSWORD=${WG_PASSWORD}         # mật khẩu web UI
+      - INIT_PORT=51820          # port UDP WireGuard
+      #- WG_DEFAULT_ADDRESS=10.8.0.x,fd42:42:42::x
+      - INIT_DNS=1.1.1.1,2606:4700:4700::1111
     volumes:
-      - ./wg-config:/etc/wireguard
+      - etc_wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
     ports:
-      - "51820:51820/udp"
-      - "51821:51821/tcp"
+      - "51820:51820/udp"            # VPN UDP port
+      # KHÔNG expose port 51821 trực tiếp ra ngoài, để NPM reverse proxy
+    restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    networks:
+      wg:
+        ipv4_address: 10.42.42.42
+        ipv6_address: fdcc:ad94:bacf:61a3::2a
     sysctls:
       - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
       - net.ipv6.conf.all.forwarding=1
-    restart: unless-stopped
+      - net.ipv6.conf.default.forwarding=1
+networks:
+  wg:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.42.42.0/24
+        - subnet: fdcc:ad94:bacf:61a3::/64
 EOF
 
 # Nếu chọn cài cả NPM
@@ -128,13 +148,16 @@ cat >> docker-compose.yml <<EOF
     volumes:
       - ./npm-data:/data
       - ./npm-letsencrypt:/etc/letsencrypt
+    networks:
+      - wg
+
 EOF
 fi
 
 cat >> docker-compose.yml <<EOF
 
 networks:
-  default:
+  proxy-tier:
     driver: bridge
 EOF
 
