@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cookie JSON Converter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 16px;
+        }
+
+        .converter-container {
+            display: flex;
+            gap: 20px;
+            height: 70vh;
+            min-height: 500px;
+        }
+
+        .panel {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: #3498db;
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .panel-content {
+            height: calc(100% - 50px);
+            position: relative;
+        }
+
+        .json-textarea {
+            width: 100%;
+            height: 100%;
+            border: none;
+            outline: none;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: none;
+            background: #fafafa;
+        }
+
+        .json-textarea:focus {
+            background: white;
+        }
+
+        .output-area {
+            padding: 20px;
+            height: 100%;
+            overflow: auto;
+            background: #fafafa;
+        }
+
+        .output-content {
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: background 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .error {
+            color: #e74c3c;
+            background: #fdf2f2;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .success {
+            color: #27ae60;
+            background: #f1f8e9;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border-left: 4px solid #27ae60;
+        }
+
+        .stats {
+            background: #ecf0f1;
+            padding: 10px 20px;
+            border-top: 1px solid #ddd;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        @media (max-width: 768px) {
+            .converter-container {
+                flex-direction: column;
+                height: auto;
+            }
+            
+            .panel {
+                height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍪 Cookie JSON Converter</h1>
+            <p>Chuyển đổi cookie JSON từ định dạng raw sang định dạng chuẩn</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn" onclick="convertJSON()">🔄 Convert</button>
+            <button class="btn btn-secondary" onclick="clearAll()">🗑️ Clear All</button>
+            <button class="btn btn-secondary" onclick="copyResult()">📋 Copy Result</button>
+        </div>
+
+        <div id="message-area"></div>
+
+        <div class="converter-container">
+            <div class="panel">
+                <div class="panel-header">
+                    📥 Input - Cookie JSON Raw
+                </div>
+                <div class="panel-content">
+                    <textarea 
+                        id="input-json" 
+                        class="json-textarea" 
+                        placeholder="Paste your raw cookie JSON here...
+Example:
+[{
+    &quot;Host raw&quot;: &quot;http://.payments.google.com/&quot;,
+    &quot;Name raw&quot;: &quot;__utmc&quot;,
+    &quot;Path raw&quot;: &quot;/&quot;,
+    &quot;Content raw&quot;: &quot;207539602&quot;,
+    &quot;Expires&quot;: &quot;At the end of the session&quot;,
+    &quot;Expires raw&quot;: &quot;0&quot;,
+    &quot;Send for&quot;: &quot;Any type of connection&quot;,
+    &quot;Send for raw&quot;: &quot;false&quot;,
+    &quot;HTTP only raw&quot;: &quot;false&quot;,
+    &quot;SameSite raw&quot;: &quot;unspecified&quot;,
+    &quot;This domain only&quot;: &quot;Valid for subdomains&quot;,
+    &quot;This domain only raw&quot;: &quot;false&quot;,
+    &quot;Store raw&quot;: &quot;firefox-container-211&quot;,
+    &quot;First Party Domain&quot;: &quot;&quot;
+}]"
+                    ></textarea>
+                </div>
+                <div class="stats" id="input-stats">
+                    Ready to convert
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    📤 Output - Standard Cookie JSON
+                </div>
+                <div class="panel-content">
+                    <div class="output-area">
+                        <div id="output-json" class="output-content">
+                            Converted JSON will appear here...
+                        </div>
+                    </div>
+                </div>
+                <div class="stats" id="output-stats">
+                    Waiting for conversion
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(message, type = 'error') {
+            const messageArea = document.getElementById('message-area');
+            messageArea.innerHTML = `<div class="${type}">${message}</div>`;
+            setTimeout(() => {
+                messageArea.innerHTML = '';
+            }, 5000);
+        }
+
+        function updateInputStats(data) {
+            const stats = document.getElementById('input-stats');
+            if (Array.isArray(data)) {
+                stats.textContent = `📊 ${data.length} cookie(s) detected`;
+            } else {
+                stats.textContent = 'Ready to convert';
+            }
+        }
+
+        function updateOutputStats(data) {
+            const stats = document.getElementById('output-stats');
+            if (Array.isArray(data)) {
+                stats.textContent = `✅ ${data.length} cookie(s) converted successfully`;
+            } else {
+                stats.textContent = 'Waiting for conversion';
+            }
+        }
+
+        function parseExpirationDate(expiresRaw) {
+            if (!expiresRaw || expiresRaw === "0" || expiresRaw === "At the end of the session") {
+                return null; // Session cookie
+            }
+            
+            // Try to parse as timestamp
+            const timestamp = parseInt(expiresRaw);
+            if (!isNaN(timestamp)) {
+                return timestamp;
+            }
+            
+            // Try to parse as date string
+            const date = new Date(expiresRaw);
+            if (!isNaN(date.getTime())) {
+                return Math.floor(date.getTime() / 1000);
+            }
+            
+            return null;
+        }
+
+        function convertCookie(rawCookie) {
+            const converted = {
+                name: rawCookie["Name raw"] || "",
+                value: rawCookie["Content raw"] || "",
+                domain: rawCookie["Host raw"] || "",
+                hostOnly: rawCookie["This domain only raw"] === "true",
+                path: rawCookie["Path raw"] || "/",
+                secure: rawCookie["Send for raw"] === "true" || rawCookie["Send for"] === "Encrypted connections only",
+                httpOnly: rawCookie["HTTP only raw"] === "true",
+                sameSite: rawCookie["SameSite raw"] || "unspecified",
+                session: rawCookie["Expires raw"] === "0" || rawCookie["Expires"] === "At the end of the session",
+                firstPartyDomain: rawCookie["First Party Domain"] || "",
+                partitionKey: null,
+                expirationDate: parseExpirationDate(rawCookie["Expires raw"]),
+                storeId: rawCookie["Store raw"] || ""
+            };
+
+            // Clean up domain (remove protocol if present)
+            if (converted.domain.startsWith('http://')) {
+                converted.domain = converted.domain.replace('http://', '');
+            }
+            if (converted.domain.startsWith('https://')) {
+                converted.domain = converted.domain.replace('https://', '');
+            }
+            if (converted.domain.endsWith('/')) {
+                converted.domain = converted.domain.slice(0, -1);
+            }
+
+            return converted;
+        }
+
+        function convertJSON() {
+            const input = document.getElementById('input-json').value.trim();
+            
+            if (!input) {
+                showMessage('⚠️ Please enter some JSON data to convert', 'error');
+                return;
+            }
+
+            try {
+                // Parse input JSON
+                const rawData = JSON.parse(input);
+                updateInputStats(rawData);
+
+                if (!Array.isArray(rawData)) {
+                    throw new Error('Input must be an array of cookie objects');
+                }
+
+                // Convert each cookie
+                const convertedData = rawData.map((cookie, index) => {
+                    try {
+                        return convertCookie(cookie);
+                    } catch (error) {
+                        throw new Error(`Error converting cookie at index ${index}: ${error.message}`);
+                    }
+                });
+
+                // Display result
+                const outputElement = document.getElementById('output-json');
+                outputElement.textContent = JSON.stringify(convertedData, null, 4);
+                
+                updateOutputStats(convertedData);
+                showMessage(`🎉 Successfully converted ${convertedData.length} cookie(s)!`, 'success');
+
+            } catch (error) {
+                showMessage(`❌ Conversion failed: ${error.message}`, 'error');
+                console.error('Conversion error:', error);
+            }
+        }
+
+        function clearAll() {
+            document.getElementById('input-json').value = '';
+            document.getElementById('output-json').textContent = 'Converted JSON will appear here...';
+            document.getElementById('input-stats').textContent = 'Ready to convert';
+            document.getElementById('output-stats').textContent = 'Waiting for conversion';
+            document.getElementById('message-area').innerHTML = '';
+        }
+
+        function copyResult() {
+            const output = document.getElementById('output-json').textContent;
+            
+            if (output === 'Converted JSON will appear here...') {
+                showMessage('⚠️ No converted data to copy', 'error');
+                return;
+            }
+
+            navigator.clipboard.writeText(output).then(() => {
+                showMessage('📋 Copied to clipboard successfully!', 'success');
+            }).catch(err => {
+                showMessage('❌ Failed to copy to clipboard', 'error');
+                console.error('Copy failed:', err);
+            });
+        }
+
+        // Auto-convert on input (debounced)
+        let convertTimeout;
+        document.getElementById('input-json').addEventListener('input', function() {
+            clearTimeout(convertTimeout);
+            convertTimeout = setTimeout(() => {
+                const input = this.value.trim();
+                if (input) {
+                    try {
+                        const data = JSON.parse(input);
+                        updateInputStats(data);
+                    } catch (e) {
+                        // Ignore parsing errors during typing
+                    }
+                }
+            }, 1000);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key) {
+                    case 'Enter':
+                        e.preventDefault();
+                        convertJSON();
+                        break;
+                    case 'd':
+                        e.preventDefault();
+                        clearAll();
+                        break;
+                }
+            }
+        });
+    </script>
+</body>
+</html>
