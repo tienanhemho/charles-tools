@@ -700,8 +700,27 @@ if [[ "$USE_EXISTING_CREDENTIALS" == "true" ]]; then
     load_existing_credentials || echo "⚠️ Không thể tải credentials cũ, sẽ tạo mới"
 fi
 
-
 mkdir -p "$WORKDIR"
+
+# === LẤY SERVER IP TRƯỚC KHI CẬP NHẬT NETPLAN ===
+echo "🔍 Lấy IP server (trước khi cập nhật netplan)..."
+SERVER_IP=""
+# Thử phương án 1: hostname -I
+SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+# Thử phương án 2: ip addr nếu chưa có
+if [[ -z "$SERVER_IP" ]]; then
+  SERVER_IP=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+fi
+# Thử phương án 3: ip route nếu vẫn chưa có
+if [[ -z "$SERVER_IP" ]]; then
+  SERVER_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || echo "")
+fi
+# Nếu vẫn không có thì báo lỗi
+if [[ -z "$SERVER_IP" ]]; then
+  echo "❌ Không thể lấy IP server, vui lòng kiểm tra network"
+  exit 1
+fi
+echo "  📡 Server IP: $SERVER_IP (đã lưu trước khi cập nhật netplan)"
 
 ### === 1. Backup và cập nhật Netplan ===
 BACKUP="$NETPLAN_FILE.bak.$(date +%s)"
@@ -1359,7 +1378,57 @@ new_count=0
 # Tạm thời tắt strict mode cho vòng lặp này
 set +euo pipefail
 
-echo "🔄 Bắt đầu vòng lặp tạo proxy..."
+# SERVER_IP đã được lấy từ đầu (trước khi cập nhật netplan)
+echo "📡 Sử dụng Server IP đã lưu: $SERVER_IP"
+
+# === TẠO PROXY IPv4 ĐẦU TIÊN ===
+echo "🌍 Tạo proxy IPv4 đầu tiên..."
+PORT_FIRST="$PORT_START"
+USER_FIRST="${PROXY_USER}0"
+
+# Kiểm tra có sử dụng credentials cũ không
+if [[ "$USE_EXISTING_CREDENTIALS" == "true" && -n "${OLD_CREDENTIALS[$PORT_FIRST]:-}" ]]; then
+  # Sử dụng credentials cũ
+  IFS=':' read -r old_user old_pass <<< "${OLD_CREDENTIALS[$PORT_FIRST]}"
+  USER_FIRST="$old_user"
+  PASS_FIRST="$old_pass"
+  ((reused_count++))
+  echo "  �🔄 Sử dụng lại credentials cũ: ${USER_FIRST}"
+else
+  # Tạo password mới
+  PASS_FIRST=$(openssl rand -hex 6)
+  if [[ -z "$PASS_FIRST" ]]; then
+    PASS_FIRST="default000"  # Fallback password
+  fi
+  ((new_count++))
+  echo "  ✨ Tạo mới credentials: ${USER_FIRST}"
+fi
+
+echo "  📍 IPv4 Proxy -> Port: $PORT_FIRST, User: $USER_FIRST"
+
+# Ghi vào result file
+echo "${USER_FIRST}:${PASS_FIRST}@${SERVER_IP}:${PORT_FIRST}" >>"$RESULT_FILE" || {
+  echo "❌ Không thể ghi vào file $RESULT_FILE"
+  exit 1
+}
+
+# Ghi nhóm IPv4 vào 3proxy.cfg
+cat >>"$WORKDIR/3proxy.cfg" <<EOF_GROUP
+# --- Group for ${USER_FIRST} (IPv4) ---
+auth strong
+users ${USER_FIRST}:CL:${PASS_FIRST}
+allow ${USER_FIRST}
+deny *
+socks -4 -p${PORT_FIRST} -i${SERVER_IP} -e${SERVER_IP}
+flush
+
+EOF_GROUP
+
+echo "✅ Đã tạo proxy IPv4 đầu tiên"
+echo ""
+
+# === TẠO CÁC PROXY IPv6 ===
+echo "🔄 Bắt đầu vòng lặp tạo proxy IPv6..."
 
 for ((i=0; i<PROXY_COUNT; i++)); do
   # Debug cho 10 proxy đầu
@@ -1376,8 +1445,8 @@ for ((i=0; i<PROXY_COUNT; i++)); do
   # Lấy IPv6 từ IP_LIST đã tạo (bỏ /64 suffix)
   IPV6_FULL="${IP_LIST[$i]}"
   IPV6_OUT="${IPV6_FULL%/64}"       # IPv6 cho external (outbound traffic)
-  PORT=$((PORT_START + i))
-  USER="${PROXY_USER}${i}"
+  PORT=$((PORT_START + i + 1))      # +1 vì port đầu tiên đã dùng cho IPv4
+  USER="${PROXY_USER}$((i + 1))"  # +1 để tránh trùng với user của IPv4
   
   # Debug cho 10 proxy đầu
   if [[ $i -lt 10 ]]; then
@@ -1399,13 +1468,6 @@ for ((i=0; i<PROXY_COUNT; i++)); do
       PASS="default$(printf "%03d" $i)"  # Fallback password
     fi
     ((new_count++))
-  fi
-  
-  # Lấy IP server (với fallback) - chỉ lần đầu
-  if [[ $i -eq 0 ]]; then
-    echo "🔍 Lấy IP server..."
-    SERVER_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 8.8.8.8 | awk '{print $7; exit}' 2>/dev/null || echo "YOUR_SERVER_IP")
-    echo "  📡 Server IP: $SERVER_IP"
   fi
   
   # Ghi vào result file
