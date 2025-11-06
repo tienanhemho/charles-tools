@@ -10,16 +10,7 @@ check_sudo() {
     echo "✅ Sudo privileges đã có sẵn"
     SUDO_CMD="sudo"
   else
-    echo "❌ Script cần quyền sudo để thực hiện các tha    rhel)
-      echo "📦 Cài đặt Docker cho RHEL/CentOS..."
-      # Remove old versions
-      $SUDO_CMD $PKG_MANAGER remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
-      
-      # Install yum-utils and add Docker repository
-      install_packages yum-utils
-      $SUDO_CMD yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-      install_packages $(get_package_names "docker")
-      ;;hống."
+    echo "❌ Script cần quyền sudo để thực hiện các thao tác hệ thống."
     echo "Vui lòng chạy: sudo $0"
     exit 1
   fi
@@ -57,6 +48,13 @@ detect_distro() {
       DISTRO_FAMILY="debian"
       PKG_MANAGER="apt"
       ;;
+    amzn)
+      DISTRO_FAMILY="amazon"
+      PKG_MANAGER="dnf"
+      if command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+      fi
+      ;;
     centos|rhel|"red hat"*)
       DISTRO_FAMILY="rhel"
       PKG_MANAGER="yum"
@@ -82,10 +80,19 @@ detect_distro() {
         DISTRO_FAMILY="debian"
         PKG_MANAGER="apt"
       elif [[ "$DISTRO_ID_LIKE" == *"rhel"* ]] || [[ "$DISTRO_ID_LIKE" == *"fedora"* ]]; then
-        DISTRO_FAMILY="rhel"
-        PKG_MANAGER="yum"
-        if command -v dnf >/dev/null 2>&1; then
+        # Check if it's Amazon Linux first
+        if [[ "$DISTRO_ID" == *"amzn"* ]] || [[ "$OS" == *"Amazon"* ]]; then
+          DISTRO_FAMILY="amazon"
           PKG_MANAGER="dnf"
+          if command -v yum >/dev/null 2>&1; then
+            PKG_MANAGER="yum"
+          fi
+        else
+          DISTRO_FAMILY="rhel"
+          PKG_MANAGER="yum"
+          if command -v dnf >/dev/null 2>&1; then
+            PKG_MANAGER="dnf"
+          fi
         fi
       elif [[ "$DISTRO_ID_LIKE" == *"arch"* ]]; then
         DISTRO_FAMILY="arch"
@@ -165,7 +172,10 @@ get_package_names() {
         debian)
           echo "ca-certificates curl jq dnsutils"
           ;;
-        rhel|fedora)
+        rhel|fedora|opensuse)
+          echo "ca-certificates curl jq bind-utils"
+          ;;
+        amazon)
           echo "ca-certificates curl jq bind-utils"
           ;;
         arch)
@@ -191,6 +201,9 @@ get_package_names() {
           echo "docker"
           ;;
         opensuse)
+          echo "ca-certificates curl jq bind-utils"
+          ;;
+        amazon)
           echo "docker"
           ;;
         *)
@@ -231,8 +244,8 @@ check_required_tools() {
     else
       echo "✅ ca-certificates - đã có sẵn"
     fi
-  elif [ "$DISTRO_FAMILY" = "rhel" ] || [ "$DISTRO_FAMILY" = "fedora" ] || [ "$DISTRO_FAMILY" = "opensuse" ]; then
-    # Trên RHEL/Fedora/openSUSE, ca-certificates thường đã có sẵn
+  elif [ "$DISTRO_FAMILY" = "rhel" ] || [ "$DISTRO_FAMILY" = "fedora" ] || [ "$DISTRO_FAMILY" = "opensuse" ] || [ "$DISTRO_FAMILY" = "amazon" ]; then
+    # Trên RHEL/Fedora/openSUSE/Amazon Linux, ca-certificates thường đã có sẵn
     if ! rpm -q ca-certificates >/dev/null 2>&1; then
       missing_tools="$missing_tools ca-certificates"
       echo "❌ ca-certificates - chưa có"
@@ -255,7 +268,7 @@ check_required_tools() {
         missing_tools="$missing_tools dnsutils"
         echo "❌ DNS utilities (dnsutils) - chưa có"
         ;;
-      rhel|fedora|opensuse)
+      rhel|fedora|opensuse|amazon)
         missing_tools="$missing_tools bind-utils"
         echo "❌ DNS utilities (bind-utils) - chưa có"
         ;;
@@ -288,7 +301,8 @@ echo "==============================="
 echo ""
 echo "🖥️ Hỗ trợ các bản phân phối Linux:"
 echo "   • Ubuntu/Debian (apt)"
-echo "   • CentOS/RHEL/Fedora (yum/dnf)"  
+echo "   • CentOS/RHEL/Fedora (yum/dnf)"
+echo "   • Amazon Linux (yum/dnf)"  
 echo "   • Arch Linux (pacman)"
 echo "   • openSUSE (zypper)"
 echo ""
@@ -301,7 +315,7 @@ detect_distro
 
 if [ "$DISTRO_FAMILY" = "unknown" ]; then
   echo "❌ Không nhận diện được bản phân phối Linux này."
-  echo "Script chỉ hỗ trợ: Ubuntu/Debian, CentOS/RHEL/Fedora, Arch Linux, openSUSE"
+  echo "Script chỉ hỗ trợ: Ubuntu/Debian, CentOS/RHEL/Fedora, Amazon Linux, Arch Linux, openSUSE"
   exit 1
 fi
 
@@ -397,7 +411,7 @@ case $DISTRO_FAMILY in
       echo "✅ ca-certificates đã có sẵn"
     fi
     ;;
-  rhel|fedora|opensuse)
+  rhel|fedora|opensuse|amazon)
     # Check ca-certificates on RPM systems
     if ! rpm -q ca-certificates >/dev/null 2>&1; then
       echo "📦 Cài đặt ca-certificates..."
@@ -454,6 +468,15 @@ https://download.docker.com/linux/$DISTRO_ID $(lsb_release -cs) stable" \
       install_packages dnf-plugins-core
       $SUDO_CMD dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
       install_packages $(get_package_names "docker")
+      ;;
+      
+    amazon)
+      echo "📦 Cài đặt Docker cho Amazon Linux..."
+      # Remove old versions
+      $SUDO_CMD $PKG_MANAGER remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine 2>/dev/null || true
+      
+      # Amazon Linux has Docker in default repositories
+      install_packages docker
       ;;
       
     arch)

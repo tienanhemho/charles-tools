@@ -7,6 +7,7 @@ PROXY_COUNT=1000                   # Số lượng proxy muốn tạo
 PREFIX="auto"                     # Prefix IPv6 không bao gồm đằng sau dấu :: (để "auto" để tự detect)
 START_HEX=92                      # Hex bắt đầu (ví dụ từ ::5c = 92) - chỉ dùng khi USE_RANDOM_IPV6=false
 USE_RANDOM_IPV6=true             # Set true để tạo IPv6 random (4 nhóm sau ::), false để tăng dần từ START_HEX
+CLEAN_OLD_IPV6=true              # Set true để xóa tất cả IPv6 cũ (trừ IPv6 đầu tiên), false để giữ nguyên
 GATEWAY="auto"                    # Gateway IPv6 của server (để "auto" để tự detect)
 NETPLAN_FILE="/etc/netplan/50-cloud-init.yaml"
 PORT_START=60000                   # Port đầu tiên
@@ -994,11 +995,17 @@ add_ipv6_addresses() {
     echo "✅ Đã thêm IPv6 addresses vào config object"
 }
 
-# Xóa IPv6 addresses từ config object (giữ lại IPv4 và IPv6 đầu tiên)
+# Xóa IPv6 addresses từ config object (giữ lại IPv4 và IPv6 đầu tiên nếu CLEAN_OLD_IPV6=false)
 remove_proxy_ipv6_addresses() {
     local interface="$1"
     
-    echo "🗑️ Xóa proxy IPv6 addresses từ interface $interface"
+    # Kiểm tra flag CLEAN_OLD_IPV6
+    if [[ "$CLEAN_OLD_IPV6" != "true" ]]; then
+        echo "ℹ️ CLEAN_OLD_IPV6=false, giữ nguyên tất cả IPv6 addresses cũ"
+        return 0
+    fi
+    
+    echo "🗑️ Xóa proxy IPv6 addresses từ interface $interface (CLEAN_OLD_IPV6=true)"
     
     local first_ipv6=""
     local addresses_to_remove=()
@@ -1009,7 +1016,9 @@ remove_proxy_ipv6_addresses() {
     for key in "${!NETPLAN_CONFIG_ADDRESSES[@]}"; do
         if [[ "$key" == "${interface}."* ]]; then
             local addr="${NETPLAN_CONFIG_ADDRESSES[$key]}"
-            if [[ "$addr" =~ :: ]]; then
+            
+            # Kiểm tra IPv6: có dấu : và không phải IPv4
+            if [[ "$addr" =~ : ]] && [[ ! "$addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
                 ((ipv6_count++))
                 if [[ -z "$first_ipv6" ]]; then
                     first_ipv6="$addr"
@@ -1027,11 +1036,18 @@ remove_proxy_ipv6_addresses() {
     for key in "${!NETPLAN_CONFIG_ADDRESSES[@]}"; do
         if [[ "$key" == "${interface}."* ]]; then
             local addr="${NETPLAN_CONFIG_ADDRESSES[$key]}"
-            # Chỉ xóa IPv6 (có ::) và không phải IPv6 đầu tiên
-            if [[ "$addr" =~ :: ]] && [[ "$addr" != "$first_ipv6" ]]; then
+            
+            # Kiểm tra xem có phải IPv6 không (có dấu : và không phải IPv4)
+            local is_ipv6=false
+            if [[ "$addr" =~ : ]] && [[ ! "$addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+                is_ipv6=true
+            fi
+            
+            # Chỉ xóa IPv6 và không phải IPv6 đầu tiên
+            if [[ "$is_ipv6" == true ]] && [[ "$addr" != "$first_ipv6" ]]; then
                 addresses_to_remove+=("$key")
                 echo "  🗑️ Sẽ xóa: $addr"
-            elif [[ ! "$addr" =~ :: ]]; then
+            elif [[ "$is_ipv6" == false ]]; then
                 echo "  🔒 Giữ lại IPv4: $addr"
             fi
         fi
@@ -1317,18 +1333,18 @@ echo "⚙️ Tạo cấu hình 3proxy..."
 # Xóa file kết quả cũ và tạo mới
 > "$RESULT_FILE"
 
-# Tạo cấu hình 3proxy theo official Docker image format
+# Tạo cấu hình 3proxy theo official Docker image format - header chung
 cat >"$WORKDIR/3proxy.cfg" <<EOF
+# 3proxy configuration - Separated groups
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
 nserver 8.8.8.8
 nserver 1.1.1.1
 nscache 65536
 log
-auth strong
+
 EOF
 
-USER_BLOCK="users "
-
-echo "🔐 Tạo ${PROXY_COUNT} SOCKS proxy..."
+echo "🔐 Tạo ${PROXY_COUNT} SOCKS proxy với các nhóm riêng biệt..."
 
 # Kiểm tra IP_LIST có đủ không
 if [[ ${#IP_LIST[@]} -lt $PROXY_COUNT ]]; then
@@ -1339,10 +1355,6 @@ fi
 # Biến đếm thống kê
 reused_count=0
 new_count=0
-
-# Tối ưu: Tạo các arrays để batch processing
-USER_BLOCKS=()
-SOCKS_CONFIGS=()
 
 # Tạm thời tắt strict mode cho vòng lặp này
 set +euo pipefail
@@ -1389,10 +1401,6 @@ for ((i=0; i<PROXY_COUNT; i++)); do
     ((new_count++))
   fi
   
-  # Thêm vào arrays
-  USER_BLOCKS+=("${USER}:CL:${PASS}")
-  SOCKS_CONFIGS+=("socks -6 -p${PORT} -e${IPV6_OUT}")
-  
   # Lấy IP server (với fallback) - chỉ lần đầu
   if [[ $i -eq 0 ]]; then
     echo "🔍 Lấy IP server..."
@@ -1406,9 +1414,21 @@ for ((i=0; i<PROXY_COUNT; i++)); do
     break
   }
   
+  # Ghi nhóm riêng biệt vào 3proxy.cfg - theo format như HTML
+  cat >>"$WORKDIR/3proxy.cfg" <<EOF_GROUP
+# --- Group for ${USER} ---
+auth strong
+users ${USER}:CL:${PASS}
+allow ${USER}
+deny *
+socks -6 -p${PORT} -e${IPV6_OUT}
+flush
+
+EOF_GROUP
+  
   # Progress indicator - ít thường xuyên hơn
   if ((i % 100 == 0 && i > 0)); then
-    echo "  📊 Đã tạo $i/${PROXY_COUNT} proxy..."
+    echo "  📊 Đã tạo $i/${PROXY_COUNT} proxy groups..."
   fi
   
   # Safety check - tránh vòng lặp vô hạn
@@ -1418,31 +1438,20 @@ for ((i=0; i<PROXY_COUNT; i++)); do
   fi
 done
 
-echo "🔚 Hoàn tất vòng lặp. Đã tạo $i proxy"
+echo "🔚 Hoàn tất vòng lặp. Đã tạo $i proxy groups"
 
 # Khôi phục strict mode
 set -euo pipefail
 
 # Hiển thị thống kê
-echo "✅ Hoàn tất tạo proxy:"
+echo "✅ Hoàn tất tạo proxy với các nhóm riêng biệt:"
 if [[ $reused_count -gt 0 ]]; then
   echo "  🔄 Sử dụng lại: $reused_count credentials"
 fi
 if [[ $new_count -gt 0 ]]; then
   echo "  🆕 Tạo mới: $new_count credentials"
 fi
-
-# Ghi users block vào file - sử dụng array để tối ưu
-echo "🔧 Tạo cấu hình 3proxy..."
-{
-  echo "users $(IFS=' '; echo "${USER_BLOCKS[*]}")"
-  echo ""
-  echo "allow * * *"
-  echo "flush"
-  echo ""
-  # Ghi tất cả SOCKS configs
-  printf '%s\n' "${SOCKS_CONFIGS[@]}"
-} >>"$WORKDIR/3proxy.cfg"
+echo "  � Tạo được: $i nhóm proxy (mỗi nhóm có riêng users + allow + socks)"
 
 ### === 3. Dockerfile và docker-compose ===
 echo "🐳 Chuẩn bị Docker files..."
