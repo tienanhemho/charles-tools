@@ -367,12 +367,23 @@ fi
 
 # ======= THÊM IPv6 VÀO INTERFACE =======
 echo "🌐 Đang thêm ${COUNT} IPv6 mới vào interface ${DEV_IF}..."
+added=0
+skipped=0
+total=${#IPS[@]}
 for ip6 in "${IPS[@]}"; do
   if ! ip -6 addr show dev "$DEV_IF" | grep -q -F " ${ip6}/64 "; then
     ip -6 addr add "${ip6}/64" dev "$DEV_IF" || true
+    ((added++))
+  else
+    ((skipped++))
+  fi
+  # Hiển thị progress mỗi 100 địa chỉ
+  current=$((added + skipped))
+  if (( current % 100 == 0 )) || (( current == total )); then
+    echo "   Progress: ${current}/${total} (added: ${added}, skipped: ${skipped})"
   fi
 done
-echo "✅ Hoàn tất thêm IPv6"
+echo "✅ Hoàn tất thêm IPv6: ${added} added, ${skipped} skipped"
 
 # ======= CÀI 3PROXY (build từ source) =======
 if ! command -v /usr/local/3proxy/bin/3proxy >/dev/null 2>&1; then
