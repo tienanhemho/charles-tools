@@ -215,12 +215,30 @@ EOF
 
 # ======= TẠO DANH SÁCH IPv6 =======
 echo "🔄 Đang tạo danh sách ${COUNT} IPv6..."
-IPS=()
-for ((i=0; i<COUNT; i++)); do
-  ipv6=$(generate_ipv6 $i)
-  IPS+=("$ipv6")
-  echo "   [$((i+1))/${COUNT}] ${ipv6}"
-done
+if [[ "$IPV6_MODE" == "1" ]]; then
+  # Sequential: tạo tất cả cùng lúc
+  IPS=($(python3 - <<EOF
+import ipaddress
+base = ipaddress.IPv6Address("${IPV6_BASE}")
+for i in range(${COUNT}):
+    print(base + i)
+EOF
+))
+else
+  # Random: tạo tất cả cùng lúc
+  IPS=($(python3 - <<EOF
+import random
+prefix = "${IPV6_PREFIX}"
+for i in range(${COUNT}):
+    r1 = random.randint(0, 0xFFFF)
+    r2 = random.randint(0, 0xFFFF)
+    r3 = random.randint(0, 0xFFFF)
+    r4 = random.randint(0, 0xFFFF)
+    print(f"{prefix}{r1:x}:{r2:x}:{r3:x}:{r4:x}")
+EOF
+))
+fi
+echo "✅ Đã tạo ${#IPS[@]} IPv6"
 
 # ======= TẠO DANH SÁCH PASSWORDS =======
 PASSWORDS=()
@@ -229,63 +247,69 @@ USERNAMES=()
 if [[ "$USE_OLD_CREDS" == "y" || "$USE_OLD_CREDS" == "Y" ]]; then
   echo "🔐 Đang map user:pass từ config cũ..."
   
+  reused=0
+  created=0
+  
+  # Tạo passwords mới nếu cần (cho random mode)
+  if [[ "$RANDOM_PASS" == "y" || "$RANDOM_PASS" == "Y" ]]; then
+    NEW_PASSWORDS=($(python3 - <<EOF
+import random, string
+chars = string.ascii_letters + string.digits
+for i in range($((COUNT+1))):
+    print(''.join(random.choice(chars) for _ in range(12)))
+EOF
+))
+  fi
+  
   # Port đầu tiên (IPv4 proxy)
   port="$PORT_START"
   if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
-    # Có config cũ cho port này
     USERNAMES+=("${OLD_PORT_USER[$port]}")
     PASSWORDS+=("${OLD_PORT_PASS[$port]}")
-    echo "   Port $port: Giữ user cũ ${OLD_PORT_USER[$port]}"
+    ((reused++))
   else
-    # Không có config cũ, dùng mặc định
     USERNAMES+=("$PROXY_USER")
     PASSWORDS+=("$PROXY_PASS")
-    echo "   Port $port: Tạo mới user $PROXY_USER"
+    ((created++))
   fi
   
   # Các port IPv6 tiếp theo
   for ((i=0; i<COUNT; i++)); do
     port=$((PORT_START + i + 1))
     if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
-      # Có config cũ cho port này
       USERNAMES+=("${OLD_PORT_USER[$port]}")
       PASSWORDS+=("${OLD_PORT_PASS[$port]}")
-      echo "   Port $port: Giữ user cũ ${OLD_PORT_USER[$port]}"
+      ((reused++))
     else
-      # Không có config cũ
       if [[ "$RANDOM_PASS" == "y" || "$RANDOM_PASS" == "Y" ]]; then
-        # Random password mode
-        username="${PROXY_USER}${i}"
-        password=$(generate_password)
-        USERNAMES+=("$username")
-        PASSWORDS+=("$password")
-        echo "   Port $port: Tạo mới user $username (random pass)"
+        USERNAMES+=("${PROXY_USER}${i}")
+        PASSWORDS+=("${NEW_PASSWORDS[$i]}")
       else
-        # Same password mode
         USERNAMES+=("$PROXY_USER")
         PASSWORDS+=("$PROXY_PASS")
-        echo "   Port $port: Tạo mới user $PROXY_USER"
       fi
+      ((created++))
     fi
   done
-  echo "✅ Đã map ${COUNT} user:pass (giữ cũ + tạo mới)"
+  echo "✅ Giữ lại ${reused} user cũ, tạo mới ${created} user"
   
 elif [[ "$RANDOM_PASS" == "y" || "$RANDOM_PASS" == "Y" ]]; then
   # Random password mode (không dùng config cũ)
-  echo "🔐 Đang tạo random passwords cho ${COUNT} proxy..."
+  echo "🔐 Đang tạo random passwords cho $((COUNT+1)) proxy..."
   
-  # Port đầu tiên
-  username="${PROXY_USER}0"
-  pass=$(generate_password)
-  USERNAMES+=("$username")
-  PASSWORDS+=("$pass")
+  # Tạo tất cả passwords cùng lúc
+  ALL_PASSWORDS=($(python3 - <<EOF
+import random, string
+chars = string.ascii_letters + string.digits
+for i in range($((COUNT+1))):
+    print(''.join(random.choice(chars) for _ in range(12)))
+EOF
+))
   
-  # Các port tiếp theo
-  for ((i=1; i<=COUNT; i++)); do
-    username="${PROXY_USER}${i}"
-    pass=$(generate_password)
-    USERNAMES+=("$username")
-    PASSWORDS+=("$pass")
+  # Map vào arrays
+  for ((i=0; i<=COUNT; i++)); do
+    USERNAMES+=("${PROXY_USER}${i}")
+    PASSWORDS+=("${ALL_PASSWORDS[$i]}")
   done
   echo "✅ Đã tạo $((COUNT+1)) random passwords"
 else
