@@ -24,45 +24,53 @@ declare -A OLD_PORT_PASS  # Map: port -> password
 if [[ -f "$OLD_CFG" ]]; then
   echo "🔍 Phát hiện cấu hình 3proxy cũ!"
   
-  # Parse toàn bộ user:pass từ dòng users
-  ALL_USERS=$(grep -E '^users ' "$OLD_CFG" | head -n1)
-  if [[ -n "$ALL_USERS" ]]; then
-    # Tạo associative array: username -> password
-    declare -A USER_PASS_MAP
-    for entry in $ALL_USERS; do
-      if [[ "$entry" != "users" ]]; then
-        # Format: username:CL:password
-        username=$(echo "$entry" | cut -d':' -f1)
-        password=$(echo "$entry" | cut -d':' -f3)
-        if [[ -n "$username" && -n "$password" ]]; then
-          USER_PASS_MAP["$username"]="$password"
-        fi
+  # Parse user:pass và port từ config mới (nhiều dòng users riêng biệt)
+  declare -A USER_PASS_MAP
+  current_user=""
+  current_pass=""
+  
+  while IFS= read -r line; do
+    # Tìm dòng users (format: users username:CL:password)
+    if [[ "$line" =~ ^users[[:space:]]+([^:]+):CL:(.+) ]]; then
+      current_user="${BASH_REMATCH[1]}"
+      current_pass="${BASH_REMATCH[2]}"
+      USER_PASS_MAP["$current_user"]="$current_pass"
+    fi
+    
+    # Tìm dòng socks với port
+    if [[ "$line" =~ -p([0-9]+) ]]; then
+      port="${BASH_REMATCH[1]}"
+      # Liên kết port với user gần nhất (theo thứ tự trong file)
+      if [[ -n "$current_user" && -n "$current_pass" ]]; then
+        OLD_PORT_USER["$port"]="$current_user"
+        OLD_PORT_PASS["$port"]="$current_pass"
+      fi
+    fi
+    
+    # Reset current_user khi gặp flush (kết thúc group)
+    if [[ "$line" =~ ^flush ]]; then
+      current_user=""
+      current_pass=""
+    fi
+  done < "$OLD_CFG"
+  
+  if [[ ${#OLD_PORT_USER[@]} -gt 0 ]]; then
+    echo "   Tìm thấy ${#OLD_PORT_USER[@]} cấu hình user:pass theo port"
+    # Lấy port đầu tiên một cách an toàn
+    first_port=""
+    for port in "${!OLD_PORT_USER[@]}"; do
+      if [[ -z "$first_port" ]] || [[ "$port" -lt "$first_port" ]]; then
+        first_port="$port"
       fi
     done
-    
-    # Parse port và user tương ứng từ các dòng allow/socks
-    current_user=""
-    while IFS= read -r line; do
-      # Tìm dòng allow
-      if [[ "$line" =~ ^allow[[:space:]]+([^[:space:]]+) ]]; then
-        current_user="${BASH_REMATCH[1]}"
-      fi
-      # Tìm dòng socks với port
-      if [[ "$line" =~ -p([0-9]+) ]]; then
-        port="${BASH_REMATCH[1]}"
-        if [[ -n "$current_user" && -n "${USER_PASS_MAP[$current_user]}" ]]; then
-          OLD_PORT_USER["$port"]="$current_user"
-          OLD_PORT_PASS["$port"]="${USER_PASS_MAP[$current_user]}"
-        fi
-      fi
-    done < "$OLD_CFG"
-    
-    if [[ ${#OLD_PORT_USER[@]} -gt 0 ]]; then
-      echo "   Tìm thấy ${#OLD_PORT_USER[@]} cấu hình user:pass theo port"
-      echo "   Ví dụ: Port ${!OLD_PORT_USER[@]:0:1} -> User ${OLD_PORT_USER[${!OLD_PORT_USER[@]:0:1}]}"
-      read -rp "Sử dụng lại user:pass cũ cho các port trùng khớp? (y/n, mặc định n): " USE_OLD_CREDS
-      USE_OLD_CREDS=${USE_OLD_CREDS:-n}
+    if [[ -n "$first_port" ]]; then
+      echo "   Ví dụ: Port ${first_port} -> User ${OLD_PORT_USER[$first_port]}"
     fi
+    echo ""
+    read -rp "Sử dụng lại user:pass cũ cho các port trùng khớp? (y/n, mặc định n): " USE_OLD_CREDS
+    USE_OLD_CREDS=${USE_OLD_CREDS:-n}
+  else
+    echo "   ⚠️ Không tìm thấy cấu hình user:pass nào trong file cũ"
   fi
 fi
 
@@ -81,7 +89,7 @@ RANDOM_PASS=${RANDOM_PASS:-n}
 read -rp "Port bắt đầu (mặc định: 60000): " PORT_START
 PORT_START=${PORT_START:-60000}
 
-read -rp "Số lượng proxy (mặc định: 16): " COUNT
+read -rp "Số lượng proxy (mặc định: 1000): " COUNT
 COUNT=${COUNT:-1000}
 
 # Chọn chế độ IPv6
@@ -103,33 +111,62 @@ echo "📦 Đang cài đặt các gói phụ thuộc..."
 apt update -qq
 apt install -y build-essential wget curl unzip python3 iproute2 >/dev/null 2>&1
 
-# ======= XÁC ĐỊNH GIAO DIỆN MẠNG & IP PUBLIC =======
+# ======= XÁC ĐỊNH GIAO DIỆN MẠNG & IP =======
 DEV_IF=$(ip route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}')
-IPV4=$(curl -s https://api.ipify.org || curl -s ifconfig.me || curl -s ipinfo.io/ip)
-if [[ -z "${DEV_IF}" || -z "${IPV4}" ]]; then
-  echo "❌ Không lấy được giao diện mạng hoặc IPv4 công khai." >&2
+if [[ -z "${DEV_IF}" ]]; then
+  echo "❌ Không lấy được giao diện mạng." >&2
   exit 1
 fi
 
-echo "✅ Interface: ${DEV_IF}, IPv4: ${IPV4}"
+# Lấy IP LAN từ interface (để bind 3proxy)
+IPV4_LAN=$(ip -4 addr show dev "$DEV_IF" | grep -oP 'inet \K[\d.]+' | head -n1)
+if [[ -z "${IPV4_LAN}" ]]; then
+  echo "❌ Không lấy được IPv4 LAN từ interface ${DEV_IF}." >&2
+  exit 1
+fi
+
+# Lấy IP Public (để hiển thị trong proxy list)
+IPV4_PUBLIC=$(curl -s --max-time 5 https://api.ipify.org || curl -s --max-time 5 ifconfig.me || curl -s --max-time 5 ipinfo.io/ip || echo "")
+
+echo "✅ Interface: ${DEV_IF}"
+echo "✅ IPv4 LAN (bind): ${IPV4_LAN}"
+if [[ -n "${IPV4_PUBLIC}" ]]; then
+  echo "✅ IPv4 Public (detected): ${IPV4_PUBLIC}"
+else
+  echo "⚠️  Không detect được IPv4 Public"
+fi
+
+# Cho phép user override IP Public
+echo ""
+read -rp "IPv4 Public cho proxy list (Enter để dùng: ${IPV4_PUBLIC:-$IPV4_LAN}): " IPV4_PUBLIC_INPUT
+if [[ -n "${IPV4_PUBLIC_INPUT}" ]]; then
+  IPV4_PUBLIC="${IPV4_PUBLIC_INPUT}"
+else
+  IPV4_PUBLIC="${IPV4_PUBLIC:-$IPV4_LAN}"
+fi
+
+echo "📋 Sử dụng IPv4 Public: ${IPV4_PUBLIC}"
 
 # ======= TỰ ĐỘNG LẤY IPv6 PREFIX =======
 echo "🔍 Đang tìm IPv6 trên interface ${DEV_IF}..."
 IPV6_BASE=$(ip -6 addr show dev "$DEV_IF" scope global | \
-            grep -oP 'inet6 \K[0-9a-f:]+' | head -n1)
+            grep -oP 'inet6 \K[0-9a-f:]+' | head -n1 || true)
 
 if [[ -z "$IPV6_BASE" ]]; then
   echo "⚠️  Không tìm thấy IPv6 trên interface ${DEV_IF}."
+  echo ""
   read -rp "Nhập IPv6 base (ví dụ 2001:db8::1): " IPV6_BASE
   if [[ -z "$IPV6_BASE" ]]; then
     echo "❌ Cần có IPv6 để tiếp tục." >&2
     exit 1
   fi
+  echo "✅ Sử dụng IPv6: ${IPV6_BASE}"
 else
   echo "✅ Tìm thấy IPv6: ${IPV6_BASE}"
 fi
 
 # Lấy prefix (phần đầu của IPv6, loại bỏ 4 nhóm cuối)
+echo "🔄 Đang tính toán IPv6 prefix..."
 IPV6_PREFIX=$(python3 - <<EOF
 import ipaddress
 ip = ipaddress.IPv6Address("$IPV6_BASE")
@@ -194,7 +231,7 @@ if [[ "$USE_OLD_CREDS" == "y" || "$USE_OLD_CREDS" == "Y" ]]; then
   
   # Port đầu tiên (IPv4 proxy)
   port="$PORT_START"
-  if [[ -n "${OLD_PORT_USER[$port]}" ]]; then
+  if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
     # Có config cũ cho port này
     USERNAMES+=("${OLD_PORT_USER[$port]}")
     PASSWORDS+=("${OLD_PORT_PASS[$port]}")
@@ -209,7 +246,7 @@ if [[ "$USE_OLD_CREDS" == "y" || "$USE_OLD_CREDS" == "Y" ]]; then
   # Các port IPv6 tiếp theo
   for ((i=0; i<COUNT; i++)); do
     port=$((PORT_START + i + 1))
-    if [[ -n "${OLD_PORT_USER[$port]}" ]]; then
+    if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
       # Có config cũ cho port này
       USERNAMES+=("${OLD_PORT_USER[$port]}")
       PASSWORDS+=("${OLD_PORT_PASS[$port]}")
@@ -238,11 +275,13 @@ elif [[ "$RANDOM_PASS" == "y" || "$RANDOM_PASS" == "Y" ]]; then
   echo "🔐 Đang tạo random passwords cho ${COUNT} proxy..."
   
   # Port đầu tiên
-  USERNAMES+=("$PROXY_USER")
-  PASSWORDS+=("$PROXY_PASS")
+  username="${PROXY_USER}0"
+  pass=$(generate_password)
+  USERNAMES+=("$username")
+  PASSWORDS+=("$pass")
   
   # Các port tiếp theo
-  for ((i=0; i<COUNT; i++)); do
+  for ((i=1; i<=COUNT; i++)); do
     username="${PROXY_USER}${i}"
     pass=$(generate_password)
     USERNAMES+=("$username")
@@ -260,13 +299,56 @@ else
   done
 fi
 
+# ======= CLEAN IPv6 CŨ (tùy chọn) =======
+echo ""
+read -rp "Xóa tất cả IPv6 cũ trên interface ${DEV_IF}? (y/n, mặc định n): " CLEAN_IPV6
+CLEAN_IPV6=${CLEAN_IPV6:-n}
+
+if [[ "$CLEAN_IPV6" == "y" || "$CLEAN_IPV6" == "Y" ]]; then
+  echo "🧹 Đang xóa IPv6 cũ trên interface ${DEV_IF} (giữ lại IPv6 base)..."
+  
+  # Tạm tắt strict mode để xử lý lỗi
+  set +euo pipefail
+  
+  # Lấy danh sách IPv6 scope global
+  OLD_IPV6_LIST=$(ip -6 addr show dev "$DEV_IF" scope global 2>/dev/null | grep -oP 'inet6 \K[0-9a-f:]+/\d+')
+  
+  count=0
+  skipped=0
+  
+  if [[ -n "$OLD_IPV6_LIST" ]]; then
+    while IFS= read -r ipv6_cidr; do
+      if [[ -n "$ipv6_cidr" ]]; then
+        # Tách địa chỉ IPv6 (bỏ /64)
+        ipv6_addr="${ipv6_cidr%%/*}"
+        # Giữ lại IPv6_BASE, xóa các IPv6 khác
+        if [[ "$ipv6_addr" != "$IPV6_BASE" ]]; then
+          ip -6 addr del "$ipv6_cidr" dev "$DEV_IF" 2>/dev/null
+          if [[ $? -eq 0 ]]; then
+            count=$((count + 1))
+          fi
+        else
+          skipped=$((skipped + 1))
+        fi
+      fi
+    done <<< "$OLD_IPV6_LIST"
+    echo "✅ Đã xóa ${count} IPv6 cũ, giữ lại ${skipped} IPv6 base"
+  else
+    echo "ℹ️  Không có IPv6 nào để xóa"
+  fi
+  
+  # Bật lại strict mode
+  set -euo pipefail
+fi
+
 # ======= THÊM IPv6 VÀO INTERFACE =======
-echo "🌐 Đang thêm IPv6 vào interface ${DEV_IF}..."
+echo "🌐 Đang thêm ${COUNT} IPv6 mới vào interface ${DEV_IF}..."
 for ip6 in "${IPS[@]}"; do
   if ! ip -6 addr show dev "$DEV_IF" | grep -q -F " ${ip6}/64 "; then
     ip -6 addr add "${ip6}/64" dev "$DEV_IF" || true
   fi
 done
+echo "✅ Hoàn tất thêm IPv6"
 
 # ======= CÀI 3PROXY (build từ source) =======
 if ! command -v /usr/local/3proxy/bin/3proxy >/dev/null 2>&1; then
@@ -298,50 +380,32 @@ fi
 # ======= TẠO CẤU HÌNH 3PROXY =======
 echo "⚙️  Đang tạo cấu hình 3proxy..."
 CFG="/usr/local/3proxy/conf/3proxy.cfg"
+
+# Tạo header chung
 cat > "$CFG" <<EOF
+# 3proxy configuration - Separated groups
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
 maxconn 500
 nserver 8.8.8.8
 nscache 65536
 log /var/log/3proxy.log D
 timeouts 1 5 30 60 180 1800 15 60
-auth strong
+
 EOF
 
-# ======= TẠO CẤU HÌNH 3PROXY =======
-echo "⚙️  Đang tạo cấu hình 3proxy..."
-CFG="/usr/local/3proxy/conf/3proxy.cfg"
-cat > "$CFG" <<EOF
-maxconn 500
-nserver 8.8.8.8
-nscache 65536
-log /var/log/3proxy.log D
-timeouts 1 5 30 60 180 1800 15 60
-auth strong
-EOF
-
-# Thu thập tất cả unique users
-declare -A UNIQUE_USERS
-for ((i=0; i<${#USERNAMES[@]}; i++)); do
-  UNIQUE_USERS["${USERNAMES[$i]}"]="${PASSWORDS[$i]}"
-done
-
-# Tạo dòng users với tất cả user:pass
-USER_LIST=""
-for user in "${!UNIQUE_USERS[@]}"; do
-  USER_LIST="${USER_LIST} ${user}:CL:${UNIQUE_USERS[$user]}"
-done
-echo "users${USER_LIST}" >> "$CFG"
-echo "" >> "$CFG"
-
-# Tạo config cho từng port
+# Tạo config cho từng port theo format group riêng biệt
 port="$PORT_START"
 
 # Port đầu tiên -> IPv4 proxy
 username="${USERNAMES[0]}"
+password="${PASSWORDS[0]}"
 cat >> "$CFG" <<EOF
-# Proxy IPv4 cho ${username} trên port ${port}
+# --- Group for ${username} (IPv4) ---
+auth strong
+users ${username}:CL:${password}
 allow ${username}
-socks -4 -p${port} -i${IPV4} -e${IPV4}
+deny *
+socks -4 -p${port} -i${IPV4_LAN} -e${IPV4_LAN}
 flush
 
 EOF
@@ -350,15 +414,21 @@ port=$((port+1))
 # Các port tiếp theo -> IPv6 proxies
 for ((i=0; i<COUNT; i++)); do
   username="${USERNAMES[$((i+1))]}"
+  password="${PASSWORDS[$((i+1))]}"
   cat >> "$CFG" <<EOF
-# Proxy IPv6 cho ${username} trên port ${port}
+# --- Group for ${username} ---
+auth strong
+users ${username}:CL:${password}
 allow ${username}
-socks -6 -p${port} -i${IPV4} -e${IPS[$i]}
+deny *
+socks -6 -p${port} -i${IPV4_LAN} -e${IPS[$i]}
 flush
 
 EOF
   port=$((port+1))
 done
+
+echo "✅ Đã tạo config với $((COUNT+1)) groups riêng biệt"
 
 # ======= SYSTEMD SERVICE =======
 echo "🔧 Đang tạo systemd service..."
@@ -388,12 +458,12 @@ if [[ -n "${TG_TOKEN}" && -n "${TG_CHAT_ID}" ]]; then
     PROXY_FILE="/tmp/proxy_list_$(date +%s).txt"
     
     # Thêm IPv4 proxy đầu tiên (index 0)
-    echo "${USERNAMES[0]}:${PASSWORDS[0]}@${IPV4}:${PORT_START}" > "$PROXY_FILE"
+    echo "${USERNAMES[0]}:${PASSWORDS[0]}@${IPV4_PUBLIC}:${PORT_START}" > "$PROXY_FILE"
     
     # Thêm các IPv6 proxies
     for ((i=0; i<COUNT; i++)); do
         port=$((PORT_START + i + 1))
-        echo "${USERNAMES[$((i+1))]}:${PASSWORDS[$((i+1))]}@${IPV4}:${port}" >> "$PROXY_FILE"
+        echo "${USERNAMES[$((i+1))]}:${PASSWORDS[$((i+1))]}@${IPV4_PUBLIC}:${port}" >> "$PROXY_FILE"
     done
 
     # Gửi file lên Telegram
@@ -406,7 +476,7 @@ if [[ -n "${TG_TOKEN}" && -n "${TG_CHAT_ID}" ]]; then
     curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
         -F chat_id="${TG_CHAT_ID}" \
         -F document=@"$PROXY_FILE" \
-        -F caption="SOCKS5 Proxy List - ${IPV4} (${MODE_TEXT} IPv6, ${PASS_TEXT})" >/dev/null || true
+        -F caption="SOCKS5 Proxy List - ${IPV4_PUBLIC} (${MODE_TEXT} IPv6, ${PASS_TEXT})" >/dev/null || true
     
     # Xóa file tạm
     rm -f "$PROXY_FILE"
@@ -420,7 +490,8 @@ echo "✅ CÀI ĐẶT HOÀN TẤT!"
 echo "======================================"
 echo ""
 echo "📋 Thông tin proxy:"
-echo "   Server: ${IPV4}"
+echo "   Server (Public): ${IPV4_PUBLIC}"
+echo "   Server (LAN): ${IPV4_LAN}"
 echo "   Ports: ${PORT_START} - $((PORT_START+COUNT))"
 if [[ "$USE_OLD_CREDS" == "y" || "$USE_OLD_CREDS" == "Y" ]]; then
   echo "   Users: Mixed (reused old + new)"
@@ -435,8 +506,8 @@ fi
 echo "   IPv6 Mode: $([ "$IPV6_MODE" == "1" ] && echo "Sequential" || echo "Random")"
 echo ""
 echo "📋 Test proxy với curl:"
-echo "   curl -x socks5://${USERNAMES[0]}:${PASSWORDS[0]}@${IPV4}:${PORT_START} https://api.ipify.org"
-echo "   curl -x socks5://${USERNAMES[1]}:${PASSWORDS[1]}@${IPV4}:$((PORT_START+1)) https://api64.ipify.org"
+echo "   curl -x socks5://${USERNAMES[0]}:${PASSWORDS[0]}@${IPV4_PUBLIC}:${PORT_START} https://api.ipify.org"
+echo "   curl -x socks5://${USERNAMES[1]}:${PASSWORDS[1]}@${IPV4_PUBLIC}:$((PORT_START+1)) https://api64.ipify.org"
 echo ""
 echo "🔍 Kiểm tra trạng thái: systemctl status 3proxy"
 echo "📝 Xem log: tail -f /var/log/3proxy.log"
