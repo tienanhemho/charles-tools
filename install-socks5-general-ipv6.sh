@@ -15,6 +15,25 @@ echo "  SOCKS5 Proxy Installer (General)"
 echo "======================================"
 echo ""
 
+# File lưu trữ cấu hình để tự động chạy lại khi boot
+CONFIG_FILE="/usr/local/3proxy/conf/installer.conf"
+AUTO_RUN_MODE=false
+
+# Kiểm tra nếu đang chạy từ systemd service (auto mode)
+if [[ "${1:-}" == "--auto" ]]; then
+  AUTO_RUN_MODE=true
+  echo "🔄 Chạy tự động sau khi reboot..."
+  
+  # Load config từ file
+  if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+    echo "✅ Đã load config từ ${CONFIG_FILE}"
+  else
+    echo "❌ Không tìm thấy file config ${CONFIG_FILE}" >&2
+    exit 1
+  fi
+fi
+
 # Kiểm tra và đọc thông tin từ config cũ
 OLD_CFG="/usr/local/3proxy/conf/3proxy.cfg"
 USE_OLD_CREDS="n"
@@ -66,44 +85,57 @@ if [[ -f "$OLD_CFG" ]]; then
     if [[ -n "$first_port" ]]; then
       echo "   Ví dụ: Port ${first_port} -> User ${OLD_PORT_USER[$first_port]}"
     fi
-    echo ""
-    read -rp "Sử dụng lại user:pass cũ cho các port trùng khớp? (y/n, mặc định n): " USE_OLD_CREDS
-    USE_OLD_CREDS=${USE_OLD_CREDS:-n}
+    
+    # Chỉ hỏi khi không ở auto mode
+    if [[ "$AUTO_RUN_MODE" == false ]]; then
+      echo ""
+      read -rp "Sử dụng lại user:pass cũ cho các port trùng khớp? (y/n, mặc định n): " USE_OLD_CREDS
+      USE_OLD_CREDS=${USE_OLD_CREDS:-n}
+    fi
   else
-    echo "   ⚠️ Không tìm thấy cấu hình user:pass nào trong file cũ"
+    echo "   ⚠️  Không tìm thấy cấu hình user:pass nào trong file cũ"
   fi
 fi
 
 # Nhập thông tin proxy mặc định (dùng cho port mới)
-read -rp "Proxy Username mặc định (mặc định: proxy_user): " PROXY_USER
-PROXY_USER=${PROXY_USER:-proxy_user}
+if [[ "$AUTO_RUN_MODE" == false ]]; then
+  read -rp "Proxy Username mặc định (mặc định: proxy_user): " PROXY_USER
+  PROXY_USER=${PROXY_USER:-proxy_user}
 
-read -rp "Proxy Password mặc định (mặc định: proxy_pass123): " PROXY_PASS
-PROXY_PASS=${PROXY_PASS:-proxy_pass123}
+  read -rp "Proxy Password mặc định (mặc định: proxy_pass123): " PROXY_PASS
+  PROXY_PASS=${PROXY_PASS:-proxy_pass123}
 
-# Random password cho mỗi proxy
-echo ""
-read -rp "Random password cho mỗi proxy mới? (y/n, mặc định n): " RANDOM_PASS
-RANDOM_PASS=${RANDOM_PASS:-n}
+  # Random password cho mỗi proxy
+  echo ""
+  read -rp "Random password cho mỗi proxy mới? (y/n, mặc định n): " RANDOM_PASS
+  RANDOM_PASS=${RANDOM_PASS:-n}
 
-read -rp "Port bắt đầu (mặc định: 60000): " PORT_START
-PORT_START=${PORT_START:-60000}
+  read -rp "Port bắt đầu (mặc định: 60000): " PORT_START
+  PORT_START=${PORT_START:-60000}
 
-read -rp "Số lượng proxy (mặc định: 1000): " COUNT
-COUNT=${COUNT:-1000}
+  read -rp "Số lượng proxy (mặc định: 1000): " COUNT
+  COUNT=${COUNT:-1000}
 
-# Chọn chế độ IPv6
-echo ""
-echo "Chọn chế độ tạo IPv6:"
-echo "1) Tăng dần (Sequential): ::1, ::2, ::3, ..."
-echo "2) Random 4 nhóm cuối (Random): ::a1b2:c3d4:e5f6:1234, ..."
-read -rp "Lựa chọn (1/2, mặc định 1): " IPV6_MODE
-IPV6_MODE=${IPV6_MODE:-1}
+  # Chọn chế độ IPv6
+  echo ""
+  echo "Chọn chế độ tạo IPv6:"
+  echo "1) Tăng dần (Sequential): ::1, ::2, ::3, ..."
+  echo "2) Random 4 nhóm cuối (Random): ::a1b2:c3d4:e5f6:1234, ..."
+  read -rp "Lựa chọn (1/2, mặc định 1): " IPV6_MODE
+  IPV6_MODE=${IPV6_MODE:-1}
 
-# Telegram (tùy chọn)
-echo ""
-read -rp "Telegram Bot Token (để trống nếu không dùng): " TG_TOKEN
-read -rp "Telegram Chat ID (để trống nếu không dùng): " TG_CHAT_ID
+  # Telegram (tùy chọn)
+  echo ""
+  read -rp "Telegram Bot Token (để trống nếu không dùng): " TG_TOKEN
+  read -rp "Telegram Chat ID (để trống nếu không dùng): " TG_CHAT_ID
+  
+  # Tự động chạy lại sau reboot
+  echo ""
+  read -rp "Tự động chạy lại script khi reboot? (y/n, mặc định y): " AUTO_RERUN
+  AUTO_RERUN=${AUTO_RERUN:-y}
+else
+  echo "ℹ️  Sử dụng cấu hình đã lưu"
+fi
 
 # ======= CÀI ĐẶT PHỤ THUỘC =======
 echo ""
@@ -137,11 +169,16 @@ else
 fi
 
 # Cho phép user override IP Public
-echo ""
-read -rp "IPv4 Public cho proxy list (Enter để dùng: ${IPV4_PUBLIC:-$IPV4_LAN}): " IPV4_PUBLIC_INPUT
-if [[ -n "${IPV4_PUBLIC_INPUT}" ]]; then
-  IPV4_PUBLIC="${IPV4_PUBLIC_INPUT}"
+if [[ "$AUTO_RUN_MODE" == false ]]; then
+  echo ""
+  read -rp "IPv4 Public cho proxy list (Enter để dùng: ${IPV4_PUBLIC:-$IPV4_LAN}): " IPV4_PUBLIC_INPUT
+  if [[ -n "${IPV4_PUBLIC_INPUT}" ]]; then
+    IPV4_PUBLIC="${IPV4_PUBLIC_INPUT}"
+  else
+    IPV4_PUBLIC="${IPV4_PUBLIC:-$IPV4_LAN}"
+  fi
 else
+  # Auto mode: dùng IP Public detected hoặc fallback sang LAN
   IPV4_PUBLIC="${IPV4_PUBLIC:-$IPV4_LAN}"
 fi
 
@@ -153,14 +190,19 @@ IPV6_BASE=$(ip -6 addr show dev "$DEV_IF" scope global | \
             grep -oP 'inet6 \K[0-9a-f:]+' | head -n1 || true)
 
 if [[ -z "$IPV6_BASE" ]]; then
-  echo "⚠️  Không tìm thấy IPv6 trên interface ${DEV_IF}."
-  echo ""
-  read -rp "Nhập IPv6 base (ví dụ 2001:db8::1): " IPV6_BASE
-  if [[ -z "$IPV6_BASE" ]]; then
-    echo "❌ Cần có IPv6 để tiếp tục." >&2
+  if [[ "$AUTO_RUN_MODE" == false ]]; then
+    echo "⚠️  Không tìm thấy IPv6 trên interface ${DEV_IF}."
+    echo ""
+    read -rp "Nhập IPv6 base (ví dụ 2001:db8::1): " IPV6_BASE
+    if [[ -z "$IPV6_BASE" ]]; then
+      echo "❌ Cần có IPv6 để tiếp tục." >&2
+      exit 1
+    fi
+    echo "✅ Sử dụng IPv6: ${IPV6_BASE}"
+  else
+    echo "❌ Không tìm thấy IPv6 trên interface ${DEV_IF} (auto mode)." >&2
     exit 1
   fi
-  echo "✅ Sử dụng IPv6: ${IPV6_BASE}"
 else
   echo "✅ Tìm thấy IPv6: ${IPV6_BASE}"
 fi
@@ -266,11 +308,11 @@ EOF
   if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
     USERNAMES+=("${OLD_PORT_USER[$port]}")
     PASSWORDS+=("${OLD_PORT_PASS[$port]}")
-    ((reused++))
+    reused=$((reused + 1))
   else
     USERNAMES+=("$PROXY_USER")
     PASSWORDS+=("$PROXY_PASS")
-    ((created++))
+    created=$((created + 1))
   fi
   
   # Các port IPv6 tiếp theo
@@ -279,7 +321,7 @@ EOF
     if [[ -n "${OLD_PORT_USER[$port]:-}" ]]; then
       USERNAMES+=("${OLD_PORT_USER[$port]}")
       PASSWORDS+=("${OLD_PORT_PASS[$port]}")
-      ((reused++))
+      reused=$((reused + 1))
     else
       if [[ "$RANDOM_PASS" == "y" || "$RANDOM_PASS" == "Y" ]]; then
         USERNAMES+=("${PROXY_USER}${i}")
@@ -288,7 +330,7 @@ EOF
         USERNAMES+=("$PROXY_USER")
         PASSWORDS+=("$PROXY_PASS")
       fi
-      ((created++))
+      created=$((created + 1))
     fi
   done
   echo "✅ Giữ lại ${reused} user cũ, tạo mới ${created} user"
@@ -324,9 +366,16 @@ else
 fi
 
 # ======= CLEAN IPv6 CŨ (tùy chọn) =======
-echo ""
-read -rp "Xóa tất cả IPv6 cũ trên interface ${DEV_IF}? (y/n, mặc định n): " CLEAN_IPV6
-CLEAN_IPV6=${CLEAN_IPV6:-n}
+if [[ "$AUTO_RUN_MODE" == false ]]; then
+  echo ""
+  read -rp "Xóa tất cả IPv6 cũ trên interface ${DEV_IF}? (y/n, mặc định n): " CLEAN_IPV6
+  CLEAN_IPV6=${CLEAN_IPV6:-n}
+else
+  # Auto mode: tự động clean IPv6 cũ
+  CLEAN_IPV6="y"
+  echo ""
+  echo "🧹 Auto mode: sẽ xóa IPv6 cũ (giữ lại IPv6 base)"
+fi
 
 if [[ "$CLEAN_IPV6" == "y" || "$CLEAN_IPV6" == "Y" ]]; then
   echo "🧹 Đang xóa IPv6 cũ trên interface ${DEV_IF} (giữ lại IPv6 base)..."
@@ -373,9 +422,9 @@ total=${#IPS[@]}
 for ip6 in "${IPS[@]}"; do
   if ! ip -6 addr show dev "$DEV_IF" | grep -q -F " ${ip6}/64 "; then
     ip -6 addr add "${ip6}/64" dev "$DEV_IF" || true
-    ((added++))
+    added=$((added + 1))
   else
-    ((skipped++))
+    skipped=$((skipped + 1))
   fi
   # Hiển thị progress mỗi 100 địa chỉ
   current=$((added + skipped))
@@ -465,6 +514,26 @@ done
 
 echo "✅ Đã tạo config với $((COUNT+1)) groups riêng biệt"
 
+# ======= LƯU CẤU HÌNH ĐỂ TỰ ĐỘNG CHẠY LẠI =======
+if [[ "$AUTO_RUN_MODE" == false && ("$AUTO_RERUN" == "y" || "$AUTO_RERUN" == "Y") ]]; then
+  echo "💾 Đang lưu cấu hình..."
+  cat > "$CONFIG_FILE" <<EOFCONFIG
+# Configuration for auto-rerun after reboot
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+PROXY_USER="$PROXY_USER"
+PROXY_PASS="$PROXY_PASS"
+RANDOM_PASS="$RANDOM_PASS"
+PORT_START=$PORT_START
+COUNT=$COUNT
+IPV6_MODE=$IPV6_MODE
+TG_TOKEN="$TG_TOKEN"
+TG_CHAT_ID="$TG_CHAT_ID"
+USE_OLD_CREDS="y"
+EOFCONFIG
+  chmod 600 "$CONFIG_FILE"
+  echo "✅ Đã lưu cấu hình vào ${CONFIG_FILE}"
+fi
+
 # ======= SYSTEMD SERVICE =======
 echo "🔧 Đang tạo systemd service..."
 cat >/etc/systemd/system/3proxy.service <<EOF
@@ -482,8 +551,42 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable 3proxy >/dev/null 2>&1
+# Tạo service tự động chạy lại script khi boot (nếu được bật)
+if [[ "$AUTO_RUN_MODE" == false && ("$AUTO_RERUN" == "y" || "$AUTO_RERUN" == "Y") ]]; then
+  echo "🔧 Đang tạo service tự động chạy lại khi boot..."
+  
+  # Lưu script vào vị trí cố định
+  SCRIPT_PATH="/usr/local/bin/install-socks5-general-ipv6.sh"
+  cp "$0" "$SCRIPT_PATH"
+  chmod +x "$SCRIPT_PATH"
+  
+  cat >/etc/systemd/system/3proxy-autorun.service <<EOF
+[Unit]
+Description=Auto-rerun 3proxy installer after reboot
+After=network-online.target
+Wants=network-online.target
+Before=3proxy.service
+
+[Service]
+Type=oneshot
+ExecStart=${SCRIPT_PATH} --auto
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  
+  systemctl daemon-reload
+  systemctl enable 3proxy-autorun >/dev/null 2>&1
+  echo "✅ Đã tạo service tự động chạy lại khi boot"
+else
+  # Nếu đang ở auto mode hoặc user không muốn auto rerun, chỉ enable 3proxy
+  systemctl daemon-reload
+  systemctl enable 3proxy >/dev/null 2>&1
+fi
+
 systemctl restart 3proxy
 
 # ======= GỬI TELEGRAM (nếu cấu hình) =======
